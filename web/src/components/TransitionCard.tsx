@@ -1,0 +1,139 @@
+import Link from "next/link";
+import { CueLine } from "./CuePad";
+import { PracticeToggle } from "./PracticeToggle";
+import { RatingPicker } from "./RatingPicker";
+import { TrackTimeline } from "./TrackTimeline";
+import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
+import type { Cue, Track, Transition } from "@/lib/types";
+
+/** テンポ差。±3% 以内ならピッチをほぼ触らずに合う。 */
+function TempoBadge({ from, to }: { from: number | null; to: number | null }) {
+  const d = bpmDelta(from, to);
+  if (d === null) return null;
+  const easy = Math.abs(d) <= 3;
+  return (
+    <span
+      className={`font-mono text-[11px] tabular-nums rounded px-1.5 py-0.5 border ${
+        easy ? "text-accent border-accent/40 bg-accent/10" : "text-fg-subtle border-border"
+      }`}
+      title={easy ? "ピッチをほぼ触らずに合う" : "ピッチ調整が要る"}
+    >
+      {d >= 0 ? "+" : ""}{d.toFixed(1)}%
+    </span>
+  );
+}
+
+export function TransitionCard({
+  transition, otherTrack, fromCue, toCue, fromTrackCues, toTrackCues,
+  fromDuration, toDuration, currentBpm, href, direction, index = 0, maxOnward = null,
+}: {
+  transition: Transition;
+  otherTrack: Track | undefined;
+  fromCue: Cue | undefined;
+  toCue: Cue | undefined;
+  fromTrackCues: Cue[];
+  toTrackCues: Cue[];
+  fromDuration: number | null;
+  toDuration: number | null;
+  currentBpm: number | null;
+  href: string;
+  direction: "out" | "in";
+  index?: number;
+  /** この分岐へ進んだ場合、そこから最大何曲つなげられるか（行き先込み） */
+  maxOnward?: number | null;
+}) {
+  // 「出る側」は常に上。in の場合、相手が出る側になる
+  const top = { cue: fromCue, cues: fromTrackCues, dur: fromDuration };
+  const bottom = { cue: toCue, cues: toTrackCues, dur: toDuration };
+
+  return (
+    /*
+      カード = 枠（div）+ 中身のリンク + 星の行。
+      星は「押して評価を変える」ボタンなので、リンクの中には置けない
+      （入れ子の操作要素は HTML として壊れていて、タップが行き先に吸われる）。
+    */
+    <div
+      className="group rounded-card border border-border bg-linear-to-b from-surface to-surface-2 rise transition-colors hover:border-border-bright active:border-accent/50"
+      style={{ animationDelay: `${Math.min(index, 8) * 40}ms`, boxShadow: "var(--shadow-card)" }}
+    >
+      <Link href={href} className="block p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-fg-subtle text-sm shrink-0">{direction === "out" ? "▸" : "◂"}</span>
+          <span className="font-semibold text-[18px] break-words">{otherTrack?.name ?? "不明な曲"}</span>
+          {direction === "out" && maxOnward !== null && (
+            maxOnward > 1 ? (
+              <span
+                className="shrink-0 rounded border border-hot/35 bg-hot/10 px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-hot"
+                title="この分岐へ進んだ場合、そこから最大何曲つなげられるか"
+              >
+                この先{maxOnward}曲
+              </span>
+            ) : (
+              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-subtle">
+                行き止まり
+              </span>
+            )
+          )}
+          <span className="ml-auto flex items-center gap-1.5 shrink-0">
+            <TempoBadge from={currentBpm} to={otherTrack?.bpm ?? null} />
+            <span className="font-mono text-[11px] text-fg-subtle tabular-nums">
+              {otherTrack?.bpm ?? "–"}{otherTrack?.musicalKey && ` ${otherTrack.musicalKey}`}
+            </span>
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          <CueLine cue={top.cue} />
+          <TrackTimeline durationSec={top.dur} cues={top.cues} highlightCueId={top.cue?.id ?? ""} mode="exit" />
+
+          <div className="flex items-center gap-2 py-0.5 pl-[18px] text-fg-subtle">
+            <span className="text-[13px]">↓</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+
+          <CueLine cue={bottom.cue} />
+          <TrackTimeline durationSec={bottom.dur} cues={bottom.cues} highlightCueId={bottom.cue?.id ?? ""} mode="enter" />
+        </div>
+
+        {(transition.comment || transition.technique || transition.bars) && (
+          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-fg-muted">
+            {transition.technique && (
+              <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
+                {transition.technique}
+              </span>
+            )}
+            {transition.bars != null && (
+              <span className="text-[11px] text-fg-subtle tabular-nums">
+                {barsLabel(transition.bars, cueLabel(toCue))}
+              </span>
+            )}
+            {transition.comment && <span>{transition.comment}</span>}
+          </p>
+        )}
+
+        {transition.needsReview && (
+          <p className="mt-2 text-[13px] text-warn">⚠ rekordbox とズレている可能性があります</p>
+        )}
+      </Link>
+
+      {/*
+        練習直後に「今の良かった」を1タップで残す。入力画面まで戻らせない。
+        隣に「編集」を置く: キューの取り違えに気づくのは、この曲を見ている今なので、
+        どのキュー同士を結ぶかをここから直しに行けるようにする（入力画面が開く）。
+        パフォーマンスモードでは行ごと消える（data-edit）
+      */}
+      <div data-edit className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-1.5">
+        <span className="label">評価</span>
+        <RatingPicker id={transition.id} value={transition.rating} className="-my-0.5 ml-auto" />
+        <PracticeToggle id={transition.id} value={transition.practice} />
+        <Link
+          href={`/new?edit=${transition.id}`}
+          className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+          title="この繋ぎのキュー・種類・コメントを直す"
+        >
+          編集
+        </Link>
+      </div>
+    </div>
+  );
+}

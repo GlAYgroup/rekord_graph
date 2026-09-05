@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# 設定（Notion のトークン・DB ID）は ~/.config/rekord_graph/config.json に置く。
+# 事故防止のため、リポジトリ内に置かれた場合も無視する。
+.env
+.env*.local
+!.env.example
+*token*
+
+# data/ は個人のライブラリ由来（曲名・ファイルパス・Notion のページID）。
+# rekordbox.json は rb_export.py で再生成できる。他はその人の移行記録なので配布しない
+data/

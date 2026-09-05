@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────
+   デザイントークン（機械用の正本）。意図は DESIGN.md。
+   コンセプト = CDJ の計器パネル。Webアプリを暗くしたものではなく、機材の読み取り面。
+   ダーク固定。画面側での色・余白のハードコードは禁止。
+   ───────────────────────────────────────────────────────────── */
+:root {
+  /* 面: 青緑に寄せた黒。純黒は暗所で目が痛む */
+  --bg: #08090c;
+  --bg-deep: #050608;
+  --surface: #101319;
+  --surface-2: #161b23;
+  --elevated: #1e242e;
+
+  --fg: #eef2f7;
+  --fg-muted: #97a2b2;
+  --fg-subtle: #7d8899;  /* 11px 級の小テキストにも使うため AA(4.5:1) を満たす明度 */
+
+  /* rekordbox の色をそのまま持ち込む。機材と同じ意味で読めるように */
+  --hot: #f5a524;        /* ホットキュー = 琥珀 */
+  --hot-deep: #d98a12;   /* パッドのグラデ下端。--hot の暗色版 */
+  --hot-fg: #2b1a00;
+  --accent: #35d6f0;     /* 波形・現在地 = シアン */
+  --accent-deep: #0e7f92;
+  --accent-fg: #04222a;
+  --warn: #ff6b81;
+  --ok: #4ade80;
+  --route: #ff453a;      /* 選んだ曲から繋がっていく道筋 = 赤。沈めた周囲から浮かせて追えるようにする */
+  --incoming: #b98bff;   /* 選んだ曲に入ってくる線 = 藤色。出ていく線（シアン）と向きを取り違えないため */
+
+  --border: #212833;
+  --border-bright: #2f3947;
+
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 8px 24px -12px rgb(0 0 0 / 0.9);
+  --glow-hot: 0 0 0 1px rgb(245 165 36 / 0.35), 0 6px 18px -8px rgb(245 165 36 / 0.55);
+
+  /*
+   * スマホ下タブの高さ。**下タブ・グラフのキャンバス・各ページの下余白の正本。**
+   * 画面の一番下に貼り付けると iOS の下スワイプ帯にタップを吸われて押せない。
+   * 12px は「インジケータが無い端末でも必ず浮かせる」ための床。
+   */
+  --nav-h: calc(56px + max(env(safe-area-inset-bottom, 0px), 12px));
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-hot: var(--hot);
+  --color-hot-deep: var(--hot-deep);
+  --color-hot-fg: var(--hot-fg);
+  --color-accent: var(--accent);
+  --color-accent-deep: var(--accent-deep);
+  --color-accent-fg: var(--accent-fg);
+  --color-warn: var(--warn);
+  --color-ok: var(--ok);
+  --color-route: var(--route);
+  --color-incoming: var(--incoming);
+  --color-border: var(--border);
+  --color-border-bright: var(--border-bright);
+
+  --radius-card: 14px;
+  --radius-pad: 10px;
+
+  --font-sans: var(--font-display), -apple-system, "Hiragino Sans", system-ui, sans-serif;
+  --font-mono: var(--font-mono-display), ui-monospace, Menlo, monospace;
+}
+
+/*
+ * パフォーマンスモード（本番中）。`data-edit` が付いた**編集の入口を全部畳む**。
+ * 意図は `components/PerformanceMode.tsx`。値の正本はここではなく、
+ * 「どれが編集の入口か」は各画面が `data-edit` で名乗る。
+ *
+ * これは見た目だけの措置。指が当たっただけで書き込まれるもの（グラフのノード移動→
+ * 配置の自動保存）は CSS では止まらないので、GraphExplorer が自分で止めている。
+ */
+[data-perf="on"] [data-edit] {
+  display: none !important;
+}
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background:
+    /* 上部にわずかな光。機材のディスプレイが自発光している感じを出す */
+    radial-gradient(120% 55% at 50% -10%, rgb(53 214 240 / 0.07), transparent 60%),
+    var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* 全面に薄いグレイン。面がのっぺりしないように */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 見出しラベル: 機材のシルク印刷。小さく・広く・大文字 */
+@utility label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-subtle);
+}
+
+@utility tap {
+  min-height: 44px;
+}
+
+/* 下タブに隠れない下余白。ページの一番外側の要素に付ける */
+@utility pb-nav {
+  padding-bottom: calc(var(--nav-h) + 1.5rem);
+}
+
+/* 読み込み時に上から順に出す。派手にせず、視線の順序をつくるだけ */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+@utility rise {
+  animation: rise 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
