@@ -100,33 +100,46 @@ export function PlayDeck({
   /** すでにかけた曲（今の曲を含む）。本番中はここへ入る繋ぎを使わない */
   const used = useMemo(() => new Set(path), [path]);
 
-  /** 今の曲から出ている繋ぎ。テンポが近い順 = ピッチを触らずに済むものから */
-  const candidates = useMemo(() => {
-    if (!current) return [];
-    return [...(outgoing.get(current.id) ?? [])].sort(
-      (a, b) =>
-        Math.abs(bpmDelta(current.bpm, trackById.get(a.toTrackId)?.bpm ?? null) ?? 999) -
-        Math.abs(bpmDelta(current.bpm, trackById.get(b.toTrackId)?.bpm ?? null) ?? 999),
-    );
-  }, [current, outgoing, trackById]);
-
+  const candidates = useMemo(
+    () => (current ? outgoing.get(current.id) ?? [] : []),
+    [current, outgoing],
+  );
   const open = performing ? candidates.filter((t) => !used.has(t.toTrackId)) : candidates;
   const hidden = candidates.length - open.length;
 
   /**
-   * 「この先最大◯曲」。本番中は使った曲を外して数え直す。
-   * 一覧の並びぶんだけ探索が走るので、今の曲と使った曲が変わるまで使い回す。
+   * 一覧の並び = **「この先◯曲」が多い順。** 先が長い枝ほど、その後のセットの
+   * 選択肢が残る。**先の長さは本番中に減っていく**（かけた曲を外して数え直すため）ので、
+   * この並びも1タップごとに入れ替わる。
+   *
+   * 同数のときはテンポが近い順 = ピッチを触らずに済むものから。それも同じなら
+   * 曲名・ID の順（同じ状況で毎回同じ並びになるように）。
+   *
+   * 「この先◯曲」の探索は一覧の数だけ走るので、今の曲と使った曲が変わるまで使い回す。
    */
-  const onward = useMemo(() => {
-    const m: Record<string, { count: number; truncated: boolean }> = {};
-    for (const t of open) {
-      m[t.id] = performing
-        ? maxOnwardFrom(outgoing, t.toTrackId, used)
-        : { count: maxFrom[t.toTrackId] ?? 1, truncated: false };
-    }
-    return m;
+  const rows = useMemo(() => {
+    if (!current) return [];
+    const list = open.map((t) => {
+      const to = trackById.get(t.toTrackId);
+      return {
+        transition: t,
+        to,
+        onward: performing
+          ? maxOnwardFrom(outgoing, t.toTrackId, used)
+          : { count: maxFrom[t.toTrackId] ?? 1, truncated: false },
+        tempo: Math.abs(bpmDelta(current.bpm, to?.bpm ?? null) ?? 999),
+      };
+    });
+    list.sort(
+      (a, b) =>
+        b.onward.count - a.onward.count ||
+        a.tempo - b.tempo ||
+        (a.to?.name ?? "").localeCompare(b.to?.name ?? "", "ja") ||
+        a.transition.id.localeCompare(b.transition.id),
+    );
+    return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open.map((t) => t.id).join(","), performing, used, outgoing, maxFrom]);
+  }, [current, open.map((t) => t.id).join(","), performing, used, outgoing, maxFrom, trackById]);
 
   /** 今の曲から先、あと何曲つなげるか（今の曲を含む） */
   const remaining = current
@@ -211,7 +224,7 @@ export function PlayDeck({
         </p>
       </header>
 
-      {open.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="mt-8 rounded-card border border-border bg-surface p-5 text-[14px] text-fg-muted">
           {candidates.length === 0
             ? "この曲から繋げる先はまだ記録されていません。"
@@ -221,11 +234,9 @@ export function PlayDeck({
         </p>
       ) : (
         <ul className="mt-3 space-y-2.5">
-          {open.map((t) => {
-            const to = trackById.get(t.toTrackId);
+          {rows.map(({ transition: t, to, onward: n }) => {
             const fromCue = cueById.get(t.fromCueId);
             const toCue = cueById.get(t.toCueId);
-            const n = onward[t.id];
             return (
               <li key={t.id}>
                 <button
@@ -289,7 +300,7 @@ export function PlayDeck({
                     <TempoBadge from={current.bpm} to={to?.bpm ?? null} />
                     <span
                       className={`rounded border px-1.5 py-0.5 text-[11px] tabular-nums ${
-                        (n?.count ?? 1) > 1
+                        n.count > 1
                           ? "border-hot/35 bg-hot/10 text-hot"
                           : "border-border text-fg-subtle"
                       }`}
@@ -300,8 +311,8 @@ export function PlayDeck({
                       }
                     >
                       {/* 打ち切ったときの数は下限なので「以上」と断る（多い方に嘘をつかない） */}
-                      {(n?.count ?? 1) > 1
-                        ? `この先${n?.count}曲${n?.truncated ? "以上" : ""}`
+                      {n.count > 1
+                        ? `この先${n.count}曲${n.truncated ? "以上" : ""}`
                         : "行き止まり"}
                     </span>
                     {t.practice && (
@@ -318,7 +329,7 @@ export function PlayDeck({
       )}
 
       <p className="label mt-4">
-        タップすると、その曲が「今かけている曲」になります
+        この先つなげる曲数が多い順 · タップすると、その曲が「今かけている曲」になります
       </p>
     </main>
   );
