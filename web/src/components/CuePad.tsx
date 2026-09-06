@@ -57,8 +57,9 @@ export function CueLine({ cue, size = "md" }: { cue: Cue | undefined; size?: "md
     <div className="flex items-center gap-3 min-w-0">
       <CuePad cue={cue} size={size} />
       <span className="min-w-0">
-        <span className="flex items-center gap-1.5 text-[17px] leading-snug">
-          <span className="min-w-0 truncate">
+        <span className="flex flex-wrap items-center gap-1.5 text-[17px] leading-snug">
+          {/* キュー名は**刈らない**。長ければ折り返す（プレイ中に読む情報なので） */}
+          <span className="min-w-0 break-words">
             {cue?.name || <span className="text-fg-subtle">（名前なし）</span>}
           </span>
           <LoopTag cue={cue} />

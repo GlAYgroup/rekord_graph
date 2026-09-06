@@ -69,6 +69,19 @@ const TABS = [
     ),
   },
   {
+    // プレイ中に開く画面。本番の切り替えの隣 = 親指がいちばん届く側に置く
+    href: "/play",
+    label: "プレイ",
+    match: (p: string) => p.startsWith("/play"),
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
+        <rect x="3" y="4.5" width="12" height="5" rx="1.6" />
+        <rect x="3" y="14.5" width="12" height="5" rx="1.6" />
+        <path d="M18 8.5v7M18 15.5l-2.2-2.4M18 15.5l2.2-2.4" />
+      </svg>
+    ),
+  },
+  {
     href: "/health",
     label: "状態",
     match: (p: string) => p.startsWith("/health"),

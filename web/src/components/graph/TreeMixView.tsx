@@ -416,6 +416,13 @@ export function TreeMixView({
               ここを起点に
             </Link>
           </div>
+          {/* プレイ中に「ここから先だけ見たい」となったときの逃げ道 */}
+          <Link
+            href={`/play?from=${sel.trackId}`}
+            className="tap mt-2 flex items-center justify-center rounded-card border border-border bg-surface-2 text-center text-[13px] text-fg-muted transition-colors hover:border-border-bright hover:text-fg"
+          >
+            この曲からプレイ →
+          </Link>
           {/*
             ツリーは「この先どこまで行けるか」を見る画面。枝が途切れている所ほど
             「ここに繋ぎを足したい」と思う場所なので、入力の入口をここにも置く。

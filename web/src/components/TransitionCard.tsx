@@ -2,26 +2,10 @@ import Link from "next/link";
 import { CueLine } from "./CuePad";
 import { PracticeToggle } from "./PracticeToggle";
 import { RatingPicker } from "./RatingPicker";
+import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
-import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
+import { barsLabel, cueLabel } from "@/lib/format";
 import type { Cue, Track, Transition } from "@/lib/types";
-
-/** テンポ差。±3% 以内ならピッチをほぼ触らずに合う。 */
-function TempoBadge({ from, to }: { from: number | null; to: number | null }) {
-  const d = bpmDelta(from, to);
-  if (d === null) return null;
-  const easy = Math.abs(d) <= 3;
-  return (
-    <span
-      className={`font-mono text-[11px] tabular-nums rounded px-1.5 py-0.5 border ${
-        easy ? "text-accent border-accent/40 bg-accent/10" : "text-fg-subtle border-border"
-      }`}
-      title={easy ? "ピッチをほぼ触らずに合う" : "ピッチ調整が要る"}
-    >
-      {d >= 0 ? "+" : ""}{d.toFixed(1)}%
-    </span>
-  );
-}
 
 export function TransitionCard({
   transition, otherTrack, fromCue, toCue, fromTrackCues, toTrackCues,

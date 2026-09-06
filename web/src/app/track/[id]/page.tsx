@@ -87,11 +87,19 @@ export default async function TrackPage({
         <section>
           <div className="mb-2.5 flex items-baseline justify-between">
             <h2 className="label">次に行ける曲{out.length > 0 && ` · ${out.length}`}</h2>
-            {route.trackIds.length > 1 && (
-              <Link href={`/graph?mode=tree&root=${id}`} className="text-[12px] text-hot hover:underline">
-                ツリーで展開: ここから最大 {route.trackIds.length} 曲 →
-              </Link>
-            )}
+            <span className="flex items-center gap-3">
+              {/* プレイ中はここから /play へ入る。曲ページは情報が多すぎて片手では読めない */}
+              {out.length > 0 && (
+                <Link href={`/play?from=${id}`} className="text-[12px] text-accent hover:underline">
+                  この曲からプレイ →
+                </Link>
+              )}
+              {route.trackIds.length > 1 && (
+                <Link href={`/graph?mode=tree&root=${id}`} className="text-[12px] text-hot hover:underline">
+                  ツリー: 最大 {route.trackIds.length} 曲 →
+                </Link>
+              )}
+            </span>
           </div>
           {out.length === 0 ? (
             <div className="rounded-card border border-dashed border-border p-8 text-center">
