@@ -3,25 +3,33 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CARD_H, CARD_W, type TreeData } from "@/lib/tree";
+import {
+  CARD_W, LABEL_FONT_PX, LABEL_LINE_H, LABEL_PAD_X, LABEL_PAD_Y,
+  META_LINE_H, NAME_FONT_PX, NAME_LINE_H, type TreeData, type ViaLine,
+} from "@/lib/tree";
 
 /**
  * MixTree 風のツリー表示。起点の曲を左端に置き、右へ分岐していく。
  * レイアウトはサーバで計算済み（決定的）。ここはパン/ズームと選択だけ。
+ *
+ * ★ プレイ中に読む画面なので、**文字は一切省略しない**。
+ *   折り返しはサーバ（lib/tree.ts）が確定させているので、ここは行をそのまま描く。
+ *   繋ぎのキュー・小節数・テクニック・メモは行き先カードの左横に全文出す。
  */
 
 type Transform = { x: number; y: number; k: number };
 
-/** 全角=1・半角=0.6 で数えて幅に収める。SVG text は overflow を刈ってくれないため。
-    半角を 0.5 で数えると英字主体の曲名が枠線まで達する（実測 0.6 文字分。tree.ts の折り返しと同じ係数） */
-function clipText(text: string, maxUnits: number): string {
-  let units = 0;
-  for (let i = 0; i < text.length; i++) {
-    units += text.charCodeAt(i) > 0xff ? 1 : 0.6;
-    if (units > maxUnits) return `${text.slice(0, i)}…`;
-  }
-  return text;
-}
+/** 最初に見せるときの下限ズーム。これより縮めると文字が読めない。
+    全体を見たいときは ⊡（全体を表示）が別にある */
+const READABLE_K = 0.8;
+
+/** ラベル1行の色。種類で読み分けられるようにする */
+const LINE_FILL: Record<ViaLine["kind"], string> = {
+  cue: "var(--fg)",
+  tech: "var(--accent)",
+  bars: "var(--fg-muted)",
+  memo: "var(--fg-muted)",
+};
 
 export type RootOption = { id: string; name: string; maxFrom: number };
 
@@ -59,27 +67,40 @@ export function TreeMixView({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
 
-  const fit = useCallback(() => {
+  /** 全体を画面に収める（⊡ ボタン。文字が小さくなってもよい場面用） */
+  const fitAll = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const { width: w, height: h } = el.getBoundingClientRect();
+    const pad = 60;
+    const k = Math.max(0.15, Math.min((w - pad) / tree.width, (h - pad) / tree.height, 1.1));
+    setTransform({ k, x: (w - tree.width * k) / 2, y: (h - tree.height * k) / 2 });
+  }, [tree]);
+
+  /**
+   * 最初に見せる形。**読めることを全体表示より優先する。**
+   * 全体が入るならそのまま中央に、入らないなら起点を左端に置いて右へパンで辿る
+   * （ツリーは横に伸びるので、縮めて全部見せても読めない）。
+   */
+  const readableView = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     const { width: w, height: h } = el.getBoundingClientRect();
     const pad = 60;
     const fitK = Math.min((w - pad) / tree.width, (h - pad) / tree.height, 1.1);
-    const k = Math.max(0.15, fitK);
-    if (k === fitK) {
-      setTransform({ k, x: (w - tree.width * k) / 2, y: (h - tree.height * k) / 2 });
+    if (fitK >= READABLE_K) {
+      setTransform({ k: fitK, x: (w - tree.width * fitK) / 2, y: (h - tree.height * fitK) / 2 });
       return;
     }
-    // 最小ズームでも収まらない（スマホ）。中央寄せだと起点が見切れるので、
-    // 起点を左端に見せて右へパンで辿る（ネットワーク図の「読める一部を出す」と同じ思想）
+    const k = READABLE_K;
     const root = tree.cards.find((c) => c.depth === 0);
-    const cy = root ? root.y + CARD_H / 2 : tree.height / 2;
+    const cy = root ? root.y + root.h / 2 : tree.height / 2;
     setTransform({ k, x: pad / 2, y: h / 2 - cy * k });
   }, [tree]);
-  const fitRef = useRef(fit);
-  fitRef.current = fit;
+  const viewRef = useRef(readableView);
+  viewRef.current = readableView;
 
-  useEffect(() => { fitRef.current(); }, [fit]);
+  useEffect(() => { viewRef.current(); }, [readableView]);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -88,7 +109,7 @@ export function TreeMixView({
       const { width: w, height: h } = entry.contentRect;
       if (Math.abs(w - last.w) < 2 && Math.abs(h - last.h) < 2) return;
       last = { w, h };
-      fitRef.current();
+      viewRef.current();
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -175,44 +196,55 @@ export function TreeMixView({
             const a = cardByUid.get(l.from);
             const b = cardByUid.get(l.to);
             if (!a || !b) return null;
-            const x1 = a.x + CARD_W, y1 = a.y + CARD_H / 2;
-            const x2 = b.x, y2 = b.y + CARD_H / 2;
+            const x1 = a.x + CARD_W, y1 = a.y + a.h / 2;
+            const x2 = b.x, y2 = b.y + b.h / 2;
             const mid = (x2 - x1) / 2;
-            // ベジェは t=0.5 でちょうど両端の中点を通る。ラベルはそこに置く
-            const lx = (x1 + x2) / 2, ly = (y1 + y2) / 2;
             return (
-              <g key={l.id}>
-                <path
-                  d={`M${x1},${y1} C${x1 + mid},${y1} ${x2 - mid},${y2} ${x2},${y2}`}
-                  fill="none"
-                  stroke={l.onRoute ? "var(--hot)" : "var(--border-bright)"}
-                  strokeWidth={l.onRoute ? 2.2 : 1.4}
-                  strokeOpacity={l.onRoute ? 0.95 : 0.6}
+              <path
+                key={l.id}
+                d={`M${x1},${y1} C${x1 + mid},${y1} ${x2 - mid},${y2} ${x2},${y2}`}
+                fill="none"
+                stroke={l.onRoute ? "var(--hot)" : "var(--border-bright)"}
+                strokeWidth={l.onRoute ? 2.2 : 1.4}
+                strokeOpacity={l.onRoute ? 0.95 : 0.6}
+              />
+            );
+          })}
+          {/* 繋ぎのラベル。**行き先カードの左横**に、線を跨いで置く。
+              線の中点に置くと兄弟同士の間隔が行間隔の半分になり、複数行だと必ず重なる。
+              メモまで全文出すので、線が透けるより読めることを優先して背景を塗る。
+              カードより後・カードより前（= 線の上）に描くため、ここで分けている */}
+          {tree.cards.map((c) => {
+            if (!c.via) return null;
+            const v = c.via;
+            const top = c.y + c.h / 2 - v.h / 2;
+            return (
+              <g key={`via-${c.uid}`} transform={`translate(${v.x},${top})`} pointerEvents="none">
+                <rect
+                  width={v.w} height={v.h} rx="8"
+                  fill="var(--bg-deep)"
+                  stroke={c.onRoute ? "color-mix(in srgb, var(--hot) 45%, transparent)" : "var(--border)"}
+                  strokeWidth="1"
                 />
-                {/* どのキューからどのキューへ繋ぐかは線の上に出す（カードには置かない）。
-                    From→ と To の2行で線を挟み、背景色の縁取りで線と重なっても読めるようにする。
-                    列間はこのラベルの最大幅に合わせてサーバが広げている（tree.ts） */}
-                {b.via && (
-                  <g
-                    textAnchor="middle"
-                    fontSize="10.5"
-                    style={{ fontFamily: "var(--font-mono)" }}
-                    fill={l.onRoute ? "var(--fg)" : "var(--fg-muted)"}
-                    stroke="var(--bg-deep)"
-                    strokeWidth="4"
-                    strokeLinejoin="round"
-                    paintOrder="stroke"
-                  >
-                    <text x={lx} y={ly - 4}>{`${b.via.fromCue}→`}</text>
-                    <text x={lx} y={ly + 12}>{b.via.toCue}</text>
-                  </g>
-                )}
+                <text fontSize={LABEL_FONT_PX} style={{ fontFamily: "var(--font-mono)" }}>
+                  {v.lines.map((line, i) => (
+                    <tspan
+                      key={`${line.text}-${i}`}
+                      x={LABEL_PAD_X}
+                      y={LABEL_PAD_Y + LABEL_LINE_H * i + LABEL_LINE_H - 4}
+                      fill={LINE_FILL[line.kind]}
+                    >
+                      {line.text}
+                    </tspan>
+                  ))}
+                </text>
               </g>
             );
           })}
           {tree.cards.map((c) => {
             const isSel = selected === c.trackId;
             const isRoot = c.depth === 0;
+            const metaY = c.h - 8 - (META_LINE_H - NAME_FONT_PX);
             return (
               <g
                 key={c.uid}
@@ -230,25 +262,28 @@ export function TreeMixView({
                 onPointerDown={() => { pressedCardRef.current = c.trackId; }}
               >
                 {/* 子は単一文字列にする。複数の子だと React が <title> を特別扱いして hydration がズレる */}
-                <title>{`${c.name}${c.via ? `\n${c.via.fromCue} → ${c.via.toCue}` : ""}`}</title>
+                <title>
+                  {`${c.name}${c.via ? `\n${c.via.fromCue} → ${c.via.toCue}` : ""}${c.via?.technique ? `\n${c.via.technique}` : ""}${c.via?.comment ? `\n${c.via.comment}` : ""}`}
+                </title>
                 <rect
-                  width={CARD_W} height={CARD_H} rx="12"
+                  width={CARD_W} height={c.h} rx="12"
                   fill={c.onRoute ? "color-mix(in srgb, var(--hot) 10%, var(--surface))" : "var(--surface)"}
                   stroke={isSel ? "var(--accent)" : isRoot ? "var(--accent-deep)" : c.onRoute ? "var(--hot)" : "var(--border-bright)"}
                   strokeWidth={isSel || isRoot ? 1.8 : 1.1}
                 />
-                {/* 曲名は1行目を丸ごと使い、カード幅で刈る（はみ出すと隣のカードに重なって読めない）。
-                    全文は <title>（長押し/ホバー）と選択パネルで読める。繋ぎのキューは線上にある */}
-                <text x="12" y="21" fill="var(--fg)" fontSize="13" fontWeight="600" style={{ fontFamily: "var(--font-sans)" }}>
-                  {clipText(c.name, 12)}
+                {/* 曲名は**刈らない**。折り返した行をそのまま出す（サーバで確定済み） */}
+                <text fill="var(--fg)" fontSize={NAME_FONT_PX} fontWeight="600" style={{ fontFamily: "var(--font-sans)" }}>
+                  {c.nameLines.map((line, i) => (
+                    <tspan key={`${line}-${i}`} x={12} y={9 + NAME_LINE_H * (i + 1) - 4}>{line}</tspan>
+                  ))}
                 </text>
-                <text x="12" y="40" fontSize="10" style={{ fontFamily: "var(--font-sans)" }}>
+                <text x="12" y={metaY} fontSize="10.5" style={{ fontFamily: "var(--font-sans)" }}>
                   {isRoot && <tspan fill="var(--accent)">起点 · </tspan>}
                   <tspan fill={c.maxFrom > 1 ? "var(--hot)" : "var(--fg-subtle)"}>
                     {c.maxFrom > 1 ? `この先 最大${c.maxFrom}曲` : "行き止まり"}
                   </tspan>
                 </text>
-                <text x={CARD_W - 12} y="40" textAnchor="end" fill="var(--fg-subtle)" fontSize="10.5" style={{ fontFamily: "var(--font-mono)" }}>
+                <text x={CARD_W - 12} y={metaY} textAnchor="end" fill="var(--fg-subtle)" fontSize="10.5" style={{ fontFamily: "var(--font-mono)" }}>
                   {c.bpm ?? "–"}{c.musicalKey ? ` ${c.musicalKey}` : ""}
                 </text>
               </g>
@@ -331,7 +366,7 @@ export function TreeMixView({
           <button
             key={label}
             onClick={() => {
-              if (f === 0) { fit(); return; }
+              if (f === 0) { fitAll(); return; }
               const el = containerRef.current!;
               const { width: w, height: h } = el.getBoundingClientRect();
               const p = { x: w / 2, y: h / 2 };
