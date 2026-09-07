@@ -19,6 +19,8 @@ export type NewTransition = {
   comment?: string;
   technique?: string | null;
   bars?: number | null;
+  barsAfter?: number | null;
+  practice?: boolean;
   rating?: string | null;
   chain?: string;
   order?: number | null;
@@ -41,13 +43,51 @@ function properties(t: NewTransition) {
     種類: selectProp(t.technique),
     評価: selectProp(t.rating),
     小節数: { number: t.bars ?? null },
+    "小節数（後）": { number: t.barsAfter ?? null },
+    要練習: { checkbox: t.practice ?? false },
     順番: { number: t.order ?? null },
     // キューは実データから選ばせているので、記号ズレの心配が無い = OK
     同期ステータス: selectProp("OK"),
   };
 }
 
+/**
+ * 🔀Transitions に無い列を生やす。`properties()` が書く列は全部揃っている必要がある
+ * （1つでも無いと Notion は書き込みごと弾く）。
+ *
+ * 📍Cues のループ列を sync が生やすのと同じ流儀 = **人が Notion を触らずに済む**。
+ * 実際に足りない列だけを送るので、既にある列の設定を上書きしない。
+ * 1プロセスで一度だけ確かめる（入力のたびにスキーマを読みに行かない）。
+ */
+let columnsReady: Promise<void> | null = null;
+
+async function ensureColumns(): Promise<void> {
+  columnsReady ??= (async () => {
+    const db = await request<{ properties: Record<string, unknown> }>(
+      `/databases/${DB.transitions}`, { fresh: true },
+    );
+    const want: Record<string, unknown> = {
+      "小節数（後）": { number: {} },
+      要練習: { checkbox: {} },
+    };
+    const missing = Object.fromEntries(
+      Object.entries(want).filter(([name]) => !(name in db.properties)),
+    );
+    if (Object.keys(missing).length === 0) return;
+    await request(`/databases/${DB.transitions}`, {
+      method: "PATCH",
+      body: { properties: missing },
+      fresh: true,
+    });
+  })().catch((e) => {
+    columnsReady = null; // 次の保存でもう一度試す（一度の失敗で入力を殺さない）
+    throw e;
+  });
+  return columnsReady;
+}
+
 export async function createTransition(t: NewTransition): Promise<{ id: string; url?: string }> {
+  await ensureColumns();
   const page = await request<NotionPage & { url?: string }>("/pages", {
     method: "POST",
     fresh: true,
@@ -68,6 +108,7 @@ export async function createTransition(t: NewTransition): Promise<{ id: string; 
  * 出典は触らない（どこから来た行かの記録なので、編集しても変わらない）。
  */
 export async function updateTransition(id: string, t: NewTransition): Promise<void> {
+  await ensureColumns();
   await request(`/pages/${id}`, { method: "PATCH", body: { properties: properties(t) }, fresh: true });
   revalidateTag(NOTION_TAG, { expire: 0 });
 }
@@ -100,25 +141,16 @@ export async function updateTransitionRating(id: string, rating: string | null):
 /**
  * 要練習マークだけを付け外しする。星と同じ1タップ経路（`properties()` は通さない）。
  *
- * 「要練習」列が Notion にまだ無ければ、**最初のマークのときにアプリが生やす**
- * （📍Cues のループ列を sync が生やすのと同じ流儀。人が Notion を触らずに済む）。
+ * 「要練習」列が Notion にまだ無ければ `ensureColumns()` が生やす。
+ * 書き込みの失敗を握り潰して列を作りに行くと、関係ない失敗（消えたページなど）まで
+ * スキーマ変更で応えることになるので、**先に列を確かめてから書く**。
  */
 export async function updateTransitionPractice(id: string, practice: boolean): Promise<void> {
-  const write = () =>
-    request(`/pages/${id}`, {
-      method: "PATCH",
-      body: { properties: { 要練習: { checkbox: practice } } },
-      fresh: true,
-    });
-  try {
-    await write();
-  } catch {
-    await request(`/databases/${DB.transitions}`, {
-      method: "PATCH",
-      body: { properties: { 要練習: { checkbox: {} } } },
-      fresh: true,
-    });
-    await write();
-  }
+  await ensureColumns();
+  await request(`/pages/${id}`, {
+    method: "PATCH",
+    body: { properties: { 要練習: { checkbox: practice } } },
+    fresh: true,
+  });
   revalidateTag(NOTION_TAG, { expire: 0 });
 }

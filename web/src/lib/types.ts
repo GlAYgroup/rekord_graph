@@ -44,8 +44,10 @@ export type Transition = {
   toCueId: string;
   comment: string;
   technique: string | null;
-  /** 次の曲（To）のキューの何小節前から繋ぎ始めるか。`16` = To キューの16小節前 */
+  /** 次の曲（To）のキューの何小節**前**から繋ぎ始めるか。`16` = To キューの16小節前 */
   bars: number | null;
+  /** 次の曲（To）のキューの何小節**後**から繋ぎ始めるか。`bars` とは排他（両方は入らない） */
+  barsAfter: number | null;
   rating: string | null;
   /** 要練習マーク。次の練習で拾う繋ぎに付ける（一覧は /practice） */
   practice: boolean;

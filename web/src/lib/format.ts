@@ -41,16 +41,23 @@ export function cueLabel(cue: CueLike | undefined): string {
   return `${cue.letter ?? "?"}「${cue.name || "無名"}」${showsLoop(cue) ? " ループ" : ""}`;
 }
 
+/** 小節数の入れ物。「前」と「後」はどちらか片方だけが入る（両方は入れられない） */
+export type BarsLike = { bars: number | null; barsAfter: number | null };
+
 /**
  * 小節数の短い表し方 = `次の曲 C「歌入り」の16小節前`。**文字列で出す所は全部これを通す。**
  *
- * 小節数の意味は「**次の曲（To）のキューの何小節前**から繋ぎ始めるか」。
+ * 小節数の意味は「**次の曲（To）のキューの何小節前／後**から繋ぎ始めるか」。
  * From 側で使う長さではないので、「16小節」とだけ出すと逆向きに読める。
  * `toCueLabel` には `cueLabel` で組み立てた文字列を渡す。
+ *
+ * 前と後は排他（入力画面が片方を塞ぎ、API も両方入りを弾く）。
+ * 万一両方入っていても答えを2つ出さないよう、ここでは「後」を先に見る。
  */
-export function barsLabel(bars: number | null | undefined, toCueLabel: string): string | null {
-  if (bars == null) return null;
-  return `次の曲 ${toCueLabel}の${bars}小節前`;
+export function barsLabel(t: BarsLike, toCueLabel: string): string | null {
+  if (t.barsAfter != null) return `次の曲 ${toCueLabel}の${t.barsAfter}小節後`;
+  if (t.bars != null) return `次の曲 ${toCueLabel}の${t.bars}小節前`;
+  return null;
 }
 
 /** ループの長さ（ms）。始まりと終わりの差。ループでなければ null */

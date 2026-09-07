@@ -48,6 +48,8 @@ export type ListedTransition = {
   technique: string | null;
   rating: string | null;
   bars: number | null;
+  barsAfter: number | null;
+  practice: boolean;
   chain: string;
 };
 
@@ -89,7 +91,11 @@ export function TransitionForm({
 
   const [technique, setTechnique] = useState<string | null>(editRow?.technique ?? null);
   const [rating, setRating] = useState<string | null>(editRow?.rating ?? null);
+  // 小節数は「TO の何小節前から」と「何小節後から」の2項目。**入るのは片方だけ**
+  // （片方に数が入っている間、もう片方は塞ぐ。API 側でも両方入りを弾いている）
   const [bars, setBars] = useState(editRow?.bars == null ? "" : String(editRow.bars));
+  const [barsAfter, setBarsAfter] = useState(editRow?.barsAfter == null ? "" : String(editRow.barsAfter));
+  const [practice, setPractice] = useState(editRow?.practice ?? false);
   const [chain, setChain] = useState(editRow?.chain ?? "");
   const [comment, setComment] = useState(editRow?.comment ?? "");
 
@@ -116,6 +122,13 @@ export function TransitionForm({
   const [done, setDone] = useState<{ url?: string; label: string; edited: boolean } | null>(null);
 
   const ready = !!(fromTrack && fromCue && toTrack && toCue);
+  /** 小節数の読み下し（`次の曲 C「歌入り」の16小節前`）。組み立ては format.ts の barsLabel だけ */
+  const barsSentence = toCue
+    ? barsLabel(
+        { bars: bars === "" ? null : Number(bars), barsAfter: barsAfter === "" ? null : Number(barsAfter) },
+        cueLabel(toCue),
+      )
+    : null;
   const duplicate =
     ready && !editingId && existing.includes(keyOf(fromTrack.id, fromCue.id, toTrack.id, toCue.id));
   /**
@@ -135,7 +148,8 @@ export function TransitionForm({
   /** フォームを空に戻す。枠ごと作り直して、中の検索文字も残さない */
   const clearForm = () => {
     setFromTrack(null); setFromCue(null); setToTrack(null); setToCue(null);
-    setTechnique(null); setRating(null); setBars(""); setChain(""); setComment("");
+    setTechnique(null); setRating(null); setBars(""); setBarsAfter(""); setPractice(false);
+    setChain(""); setComment("");
     setFormSeq((n) => n + 1);
   };
 
@@ -157,7 +171,7 @@ export function TransitionForm({
       const payload = {
         fromTrackId: fromTrack.id, fromCueId: fromCue.id,
         toTrackId: toTrack.id, toCueId: toCue.id,
-        technique, rating, bars, chain, comment,
+        technique, rating, bars, barsAfter, practice, chain, comment,
       };
       const res = await fetch("/api/transitions", {
         method: editingId ? "PATCH" : "POST",
@@ -176,7 +190,10 @@ export function TransitionForm({
         comment,
         fromTrackId: fromTrack.id, fromCueId: fromCue.id,
         toTrackId: toTrack.id, toCueId: toCue.id,
-        technique, rating, bars: bars === "" ? null : Number(bars), chain,
+        technique, rating,
+        bars: bars === "" ? null : Number(bars),
+        barsAfter: barsAfter === "" ? null : Number(barsAfter),
+        practice, chain,
       };
 
       if (editingId) {
@@ -212,6 +229,8 @@ export function TransitionForm({
     setToTrack(tt); setToCue(tt?.cues.find((c) => c.id === row.toCueId) ?? null);
     setTechnique(row.technique); setRating(row.rating);
     setBars(row.bars == null ? "" : String(row.bars));
+    setBarsAfter(row.barsAfter == null ? "" : String(row.barsAfter));
+    setPractice(row.practice);
     setChain(row.chain); setComment(row.comment);
     setEditingId(row.id);
     setFormSeq((n) => n + 1); // 枠を作り直して、前の検索文字を残さない
@@ -370,24 +389,75 @@ export function TransitionForm({
           </div>
         </div>
 
+        {/*
+          小節数は「TO の何小節前から」と「何小節後から」の2項目。
+          繋ぎ始めが TO キューより前のことも後のこともあるので、両方を置いてある。
+          **入るのは片方だけ** — 片方に数が入っている間、もう片方は塞ぐ
+          （両方入ると「何小節ずらすか」の答えが2つある行になる。API 側でも弾く）。
+        */}
+        <div>
+          <span className="label">小節数 · TO のキューから何小節ずらして始めるか</span>
+          <div className="mt-1.5 flex flex-wrap gap-3">
+            <label className="flex-1 min-w-[140px]">
+              <span className="text-[11.5px] text-fg-subtle">何小節<b className="text-fg-muted">前</b>から</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={bars}
+                onChange={(e) => setBars(e.target.value)}
+                disabled={barsAfter !== ""}
+                placeholder="16"
+                className="mt-1 h-12 w-full rounded-card border border-border bg-surface-2 px-3 font-mono text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent disabled:opacity-40"
+              />
+            </label>
+            <label className="flex-1 min-w-[140px]">
+              <span className="text-[11.5px] text-fg-subtle">何小節<b className="text-fg-muted">後</b>から</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={barsAfter}
+                onChange={(e) => setBarsAfter(e.target.value)}
+                disabled={bars !== ""}
+                placeholder="8"
+                className="mt-1 h-12 w-full rounded-card border border-border bg-surface-2 px-3 font-mono text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent disabled:opacity-40"
+              />
+            </label>
+          </div>
+          {/* 意味の取り違えがいちばん怖い項目なので、読み下した文をその場で返す */}
+          {barsSentence && (
+            <span className="mt-1 block text-[11.5px] text-fg-subtle">{barsSentence}</span>
+          )}
+          {(bars !== "" || barsAfter !== "") && (
+            <span className="mt-1 block text-[11px] text-fg-subtle">
+              入るのはどちらか片方です。入れ直すときは、入っている方を空にしてください。
+            </span>
+          )}
+        </div>
+
+        {/*
+          要練習マーク。今までは保存したあとに曲ページ・グラフ・/practice で押すしかなく、
+          「入れながら、これは練習が要る」と分かっている繋ぎを一手で残せなかった
+        */}
+        <div>
+          <span className="label">要練習</span>
+          <div className="mt-1.5">
+            <button
+              type="button"
+              onClick={() => setPractice((v) => !v)}
+              aria-pressed={practice}
+              title="次の練習で拾う繋ぎに付ける（/practice に一覧が出る）"
+              className={`tap inline-flex items-center rounded-full border px-4 text-[13px] transition-colors ${
+                practice
+                  ? "border-warn/60 bg-warn/12 text-warn"
+                  : "border-border bg-surface-2 text-fg-muted hover:text-fg"
+              }`}
+            >
+              {practice ? "⚑ 要練習" : "要練習"}
+            </button>
+          </div>
+        </div>
+
         <div className="flex flex-wrap gap-3">
-          <label className="flex-1 min-w-[140px]">
-            <span className="label">小節数 · TO の何小節前から</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              value={bars}
-              onChange={(e) => setBars(e.target.value)}
-              placeholder="16"
-              className="mt-1.5 h-12 w-full rounded-card border border-border bg-surface-2 px-3 font-mono text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent"
-            />
-            {/* 意味の取り違えがいちばん怖い項目なので、読み下した文をその場で返す */}
-            {bars !== "" && toCue && (
-              <span className="mt-1 block text-[11.5px] text-fg-subtle">
-                {barsLabel(Number(bars), cueLabel(toCue))}
-              </span>
-            )}
-          </label>
           <label className="flex-1 min-w-[140px]">
             <span className="label">チェーン</span>
             <input

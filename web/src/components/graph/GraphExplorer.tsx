@@ -1164,11 +1164,11 @@ export function GraphExplorer({
                           <span className="block font-mono text-[11px] text-fg-subtle break-words">
                             {t.fromCue} → {t.toCue}
                           </span>
-                          {(t.technique || t.bars) && (
+                          {(t.technique || barsLabel(t, t.toCue)) && (
                             <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px]">
                               {t.technique && <span className="text-fg-muted">{t.technique}</span>}
-                              {t.bars != null && (
-                                <span className="tabular-nums text-fg-subtle">{barsLabel(t.bars, t.toCue)}</span>
+                              {barsLabel(t, t.toCue) && (
+                                <span className="tabular-nums text-fg-subtle">{barsLabel(t, t.toCue)}</span>
                               )}
                             </span>
                           )}

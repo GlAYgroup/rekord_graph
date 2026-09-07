@@ -1,4 +1,4 @@
-import { barsLabel, cueLabel } from "./format";
+import { barsLabel, cueLabel, type BarsLike } from "./format";
 import type { Graph } from "./graph";
 import { longestRouteFrom } from "./route";
 
@@ -59,6 +59,7 @@ export type TreeVia = {
   toCue: string;
   comment: string;
   bars: number | null;
+  barsAfter: number | null;
   technique: string | null;
   /** 描く行（折り返し済み）。画面はこれをそのまま出す */
   lines: ViaLine[];
@@ -186,12 +187,12 @@ export function buildTree(g: Graph, rootId: string): TreeData | null {
   const root = grow(rootId, "", [], 0);
 
   /** 繋ぎ1本を「読める行の並び」に開く。**メモは省略しない** */
-  const viaLinesOf = (fromCue: string, toCue: string, technique: string | null, bars: number | null, comment: string): ViaLine[] => {
+  const viaLinesOf = (fromCue: string, toCue: string, technique: string | null, bars: BarsLike, comment: string): ViaLine[] => {
     const lines: ViaLine[] = [];
     for (const t of wrapUnits(`${fromCue} →`, LABEL_MAX_UNITS)) lines.push({ text: t, kind: "cue" });
     for (const t of wrapUnits(toCue, LABEL_MAX_UNITS)) lines.push({ text: t, kind: "cue" });
     if (technique) for (const t of wrapUnits(technique, LABEL_MAX_UNITS)) lines.push({ text: t, kind: "tech" });
-    // 小節数は「次の曲のキューの何小節前か」。短縮すると逆向きに読めるので barsLabel をそのまま出す
+    // 小節数は「次の曲のキューの何小節前／後か」。短縮すると逆向きに読めるので barsLabel をそのまま出す
     const bl = barsLabel(bars, toCue);
     if (bl) for (const t of wrapUnits(bl, LABEL_MAX_UNITS)) lines.push({ text: t, kind: "bars" });
     if (comment) for (const t of wrapUnits(comment, LABEL_MAX_UNITS)) lines.push({ text: t, kind: "memo" });
@@ -210,11 +211,12 @@ export function buildTree(g: Graph, rootId: string): TreeData | null {
       if (edge) {
         const fromCue = cueLabel(g.cueById.get(edge.fromCueId));
         const toCue = cueLabel(g.cueById.get(edge.toCueId));
-        const lines = viaLinesOf(fromCue, toCue, edge.technique, edge.bars, edge.comment);
+        const lines = viaLinesOf(fromCue, toCue, edge.technique, edge, edge.comment);
         const w = Math.ceil(Math.max(...lines.map((l) => unitsOf(l.text))) * LABEL_FONT_PX * WIDTH_SAFETY) + LABEL_PAD_X * 2;
         const h = lines.length * LABEL_LINE_H + LABEL_PAD_Y * 2;
         viaOf.set(n.uid, {
-          fromCue, toCue, comment: edge.comment, bars: edge.bars, technique: edge.technique, lines, w, h,
+          fromCue, toCue, comment: edge.comment,
+          bars: edge.bars, barsAfter: edge.barsAfter, technique: edge.technique, lines, w, h,
         });
         const d = n.depth - 1;
         labelWAt.set(d, Math.max(labelWAt.get(d) ?? 0, w));

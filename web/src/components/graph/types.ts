@@ -34,7 +34,10 @@ export type PanelTransition = {
   practice: boolean;
   /** 同時流し / ループ合わせ / カット / ビート合わせ */
   technique: string | null;
+  /** TO キューの何小節「前」から。`barsAfter` とは排他（入るのは片方だけ） */
   bars: number | null;
+  /** TO キューの何小節「後」から */
+  barsAfter: number | null;
 };
 
 export type PanelData = Record<string, { out: PanelTransition[]; in: PanelTransition[] }>;

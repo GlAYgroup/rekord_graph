@@ -83,7 +83,8 @@ def schema_transitions(tracks_id: str, cues_id: str) -> dict:
         "順番": number(),
         "種類": select(TECHNIQUES),
         "評価": select(RATINGS),
-        "小節数": number(),      # 次の曲（To）のキューの何小節前から繋ぎ始めるか
+        "小節数": number(),          # 次の曲（To）のキューの何小節「前」から繋ぎ始めるか
+        "小節数（後）": number(),     # 同じく何小節「後」から。小節数とは排他（入るのは片方だけ）
         "要練習": checkbox(),
         "同期ステータス": select(["OK", "要確認"]),
         "出典": text(),          # どこから来た行か（アプリ / 移行 など）

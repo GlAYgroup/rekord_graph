@@ -145,6 +145,9 @@ async function build(): Promise<Graph> {
       comment: text(p.properties["コメント"]),
       technique: selectName(p.properties["種類"]),
       bars: num(p.properties["小節数"]),
+      // 「小節数（後）」列がまだ無いワークスペースでも動く（無ければ「後は未入力」）。
+      // 列は最初に「後」を書いたときにアプリが生やす（`lib/transitions.ts`）
+      barsAfter: num(p.properties["小節数（後）"]),
       rating: selectName(p.properties["評価"]),
       // 「要練習」列がまだ無いワークスペースでも動く（無ければ「マークなし」）。
       // 列は最初にマークを付けたときにアプリが生やす（`lib/transitions.ts`）

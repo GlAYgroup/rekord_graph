@@ -265,7 +265,7 @@ export function PlayDeck({
                       mode="enter"
                     />
 
-                    {(t.technique || t.bars != null || t.comment) && (
+                    {(t.technique || barsLabel(t, cueLabel(toCue)) || t.comment) && (
                       <div className="space-y-1 pt-0.5">
                         <div className="flex flex-wrap items-center gap-2">
                           {t.technique && (
@@ -273,9 +273,9 @@ export function PlayDeck({
                               {t.technique}
                             </span>
                           )}
-                          {t.bars != null && (
+                          {barsLabel(t, cueLabel(toCue)) && (
                             <span className="text-[11.5px] tabular-nums text-fg-subtle">
-                              {barsLabel(t.bars, cueLabel(toCue))}
+                              {barsLabel(t, cueLabel(toCue))}
                             </span>
                           )}
                         </div>

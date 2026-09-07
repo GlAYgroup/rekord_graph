@@ -5,9 +5,13 @@ import { createTransition, deleteTransition, updateTransition } from "@/lib/tran
 export const dynamic = "force-dynamic";
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+/** 数値そのものでも、フォームが送る文字列でも受ける。空・数でないものは null */
 const numOrNull = (v: unknown) => {
-  const n = typeof v === "number" ? v : Number(str(v));
-  return Number.isFinite(n) && str(v) !== "" ? n : null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const s = str(v);
+  if (s === "") return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
 };
 
 /**
@@ -35,6 +39,14 @@ async function validated(body: Record<string, unknown> | null) {
     return { error: "キューがその曲のものではありません", status: 400 as const };
   }
 
+  // 小節数の「前」と「後」は排他。入力画面が片方を塞いでいるので普通は届かないが、
+  // 両方入った行を作ると「何小節前か」の答えが2つある状態になるので、ここで弾く
+  const bars = numOrNull(body?.bars);
+  const barsAfter = numOrNull(body?.barsAfter);
+  if (bars != null && barsAfter != null) {
+    return { error: "小節数は「前」か「後」のどちらか片方だけ入れてください", status: 400 as const };
+  }
+
   return {
     graph: g,
     payload: {
@@ -44,7 +56,9 @@ async function validated(body: Record<string, unknown> | null) {
       chain: str(body?.chain),
       technique: str(body?.technique) || null,
       rating: str(body?.rating) || null,
-      bars: numOrNull(body?.bars),
+      bars,
+      barsAfter,
+      practice: body?.practice === true,
       order: numOrNull(body?.order),
     },
   };
