@@ -29,48 +29,14 @@ from pyrekordbox import Rekordbox6Database
 # 現タイトル -> {title, artist, genre}。指定した項目だけ変える（None は触らない）
 # genre="" はジャンルを外す
 CHANGES = {
-    # ── 承認済みチェックリスト A: 形式から外れている曲名・アーティスト ──
-    "Yasuo-P + Giga-P - えれくとりっく・えんじぇぅ (Altermis Hardcore Edit) [Free DL]":
-        {"title": "えれくとりっく・えんじぇぅ（Altermis edit）", "artist": "ヤスオP・ギガP"},
-    "ヤラララ(YARARARA)": {"title": "ヤラララ"},
-
-    # ── 承認済みチェックリスト B: ジャンル（旧ファイル名に根拠あり）──
-    "アイドル（Cosmowave remix）": {"genre": "Hardbass"},
-    "Ievan Polkka（Cosmowave remix）": {"genre": "Hardbass"},          # Hard Bass から統一
-    "キャンディークッキーチョコレート（K.zune remix）": {"genre": "Frenchcore"},
-    "パンダヒーロー（SUZUNO bootleg）": {"genre": "Frenchcore"},
-    "メズマライザー（Newlisk remix）": {"genre": "Frenchcore"},
-    "ロミオとシンデレラ（ZEPHYR edit）": {"genre": "Frenchcore"},
-    "混沌ブギ（SDF's bootleg）": {"genre": "Frenchcore"},
-    "ローリンガール（Mede's bootleg）": {"genre": "Hardcore"},
-    "モザイクロール（DAYOx2 bootleg）": {"genre": "UK Hardcore"},
-    "星間飛行（A/I remix）": {"genre": "UK Hardcore"},
-    "転生林檎（sasamin remix）": {"genre": "Hardtechno"},
-    "ビビデバ（NAMA remix）": {"genre": "Fullcore"},
-    "お返事まだカナ💦❓おじさん構文😁❗️（Cura remix）": {"genre": "Hardfunk"},
-    "ダイダイダイダイダイキライ（PiEa remix）": {"genre": "Bassline Garage"},   # Other から
-    "It's Me（HARRY bootleg）": {"genre": "Hi-Tech"},
-    "小フーガ ト短調 BWV 578": {"genre": "Classical"},                  # Other から
-
-    # ── 新規取り込み分: 形式に合わせる（アーティストは原曲者へ）──
-    "Amala - ダイダイダイダイダイキライ (KAUTSAR Remix)2":
-        {"title": "ダイダイダイダイダイキライ（KAUTSAR remix）", "artist": "雨良 Amala"},
-    "DECO*27 - ゴーストルール feat. 初音ミク (Tr!xy Euphoric Frenchcore Bootleg)":
-        {"title": "ゴーストルール（Tr!xy bootleg）", "artist": "DECO*27", "genre": "Frenchcore"},
-    "Tell Your World (Snail's House Remix) [all my love to this world VIP]":
-        {"title": "Tell Your World（Snail's House remix）", "artist": "kz(livetune)", "genre": ""},
-    "doriko feat.初音ミク - ロミオとシンデレラ (Zekk Remix)":
-        {"title": "ロミオとシンデレラ（Zekk remix）", "artist": "doriko"},
-    "いますぐ輪廻(Gyr0 Remix)": {"title": "いますぐ輪廻（Gyr0 remix）", "artist": "なきそ"},
-    "エイリアンエイリアン(wotaku Remix)":
-        {"title": "エイリアンエイリアン（wotaku remix）", "artist": "ナユタン星人"},
-    "トウキョウ・シャンディ・ランデヴ(DJSC donk bootleg)":
-        {"title": "トウキョウ・シャンディ・ランデヴ（DJSC bootleg）", "artist": "Kanaria", "genre": "Donk"},
-    "ハッピーシンセサイザ(HISASHIz Bootleg Remix)":
-        {"title": "ハッピーシンセサイザ（HISASHIz bootleg）"},
-    "乙女解剖 (kaputt Remix)": {"title": "乙女解剖（kaputt remix）", "artist": "DECO*27"},
-    "千本桜 feat. 初音ミク (Yasuha. Remix)": {"title": "千本桜（Yasuha. remix）", "artist": "黒うさP"},
-    "みむかｩわナイストライ (Hexacube's HARDCORE-style Bootleg)": {"genre": "Hardcore"},
+    # ── 2026-09-09 第2回: 曲名が特定できた3曲（本人に確認済み）──
+    # 原口沙輔「イガク」。原曲がカタカナなので Igaku ではなくイガク
+    "Igaku(CottonPot Bootleg)": {"title": "イガク（CottonPot bootleg）", "artist": "原口沙輔"},
+    # Anamanaguchi「Miku」。原曲が英語。リミックスではなく原曲そのものなので括弧なし
+    "miku song": {"title": "Miku", "artist": "Anamanaguchi"},
+    # 原曲は「みむかｩわナイストライ」（Mimukauwa Nice Try はローマ字表記）。アーティストは未確認
+    "みむかｩわナイストライ (Hexacube's HARDCORE-style Bootleg)":
+        {"title": "みむかｩわナイストライ（Hexacube's bootleg）"},
 }
 
 
