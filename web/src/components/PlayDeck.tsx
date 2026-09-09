@@ -24,8 +24,17 @@ import type { Cue, Track, Transition } from "@/lib/types";
  *   「この先最大◯曲」も**残っている曲だけで**数え直す（`maxOnwardFrom`）。
  *   本番でないときは下見なので何も消さない（使った曲には印だけ付ける）。
  *
+ * ★ 本番では「記録に無い曲」へ急に繋ぐことがある。そのときのための入口が「曲を変える」で、
+ *   これは**かけてきた順を捨てずに、選んだ曲を後ろに足す**（＝繋いだ曲として数える）。
+ *   一覧には繋ぎが1本も無い曲も並ぶので、そこへも移れる。
+ *   セットを最初から取り直したいときだけ「リセット」。**この2つは別物なので分けてある**
+ *   （今までの「曲を変える」は全部消していた ＝ 本番中に押すと戻れなかった）。
+ *
  * モードは画面ごとに作らず、ナビの「本番」（`usePerformance`）をそのまま使う。
  * 「今この端末が本番中か」という同じ問いに答えが2つある状態を作らない。
+ *
+ * 「戻す」「曲を変える」「リセット」は Notion に何も書かないので `data-edit` を付けない。
+ * 本番中に畳んでしまうと、急な差し替えから戻る道が無くなる。
  */
 
 const STORAGE = "rg.play.v1";
@@ -55,6 +64,10 @@ export function PlayDeck({
   const [path, setPath] = useState<string[]>(initialTrackId ? [initialTrackId] : []);
   /** 端末に残した続きを読むのは mount 後（サーバの描画と食い違わせない） */
   const [restored, setRestored] = useState(false);
+  /** 曲一覧を開いているか（＝繋ぎに無い曲へ移る途中）。かけてきた順はそのまま */
+  const [picking, setPicking] = useState(false);
+  /** リセットは2タップ。暗所で片手でも誤爆しないように、押してから確かめる */
+  const [confirmReset, setConfirmReset] = useState(false);
 
   const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
   const cueById = useMemo(() => new Map(cues.map((c) => [c.id, c])), [cues]);
@@ -148,12 +161,20 @@ export function PlayDeck({
       : maxFrom[current.id] ?? 1
     : 0;
 
-  if (!current) {
+  // 曲が決まっていない（＝最初の1曲）と、途中で別の曲へ移るときは同じ一覧を出す。
+  // 違うのは選んだ結果だけ: 前者は「そこから始める」、後者は「後ろに足す」
+  if (!current || picking) {
     return (
       <StartPicker
         tracks={tracks}
         maxFrom={maxFrom}
-        onPick={(id) => setPath([id])}
+        used={used}
+        mode={current ? "jump" : "start"}
+        onPick={(id) => {
+          setPicking(false);
+          setPath((p) => (current ? [...p, id] : [id]));
+        }}
+        onCancel={current ? () => setPicking(false) : null}
       />
     );
   }
@@ -186,8 +207,9 @@ export function PlayDeck({
               </button>
             )}
             <button
-              onClick={() => setPath([])}
+              onClick={() => { setConfirmReset(false); setPicking(true); }}
               className="tap rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+              title="記録に無い曲へも移れます。かけてきた順はそのまま残ります"
             >
               曲を変える
             </button>
@@ -230,7 +252,8 @@ export function PlayDeck({
             ? "この曲から繋げる先はまだ記録されていません。"
             : "繋げる先はありますが、どれも今回かけ終わった曲です。"}
           <br />
-          「戻す」で一つ前に戻るか、「曲を変える」で別の曲から始められます。
+          「戻す」で一つ前に戻るか、「曲を変える」で記録に無い曲へも移れます
+          （移った先も、繋いだ曲として数えます）。
         </p>
       ) : (
         <ul className="mt-3 space-y-2.5">
@@ -331,17 +354,63 @@ export function PlayDeck({
       <p className="label mt-4">
         この先つなげる曲数が多い順 · タップすると、その曲が「今かけている曲」になります
       </p>
+
+      {/*
+        リセット = かけてきた順を全部捨てて、最初の1曲から選び直す。
+        **一番下に置き、2タップにする。** 「戻す」「曲を変える」の隣に同じ大きさで置くと、
+        暗いブースで押し間違えたときにセットの記録が消える（消したものは戻せない）
+      */}
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-2 border-t border-border pt-4">
+        {confirmReset ? (
+          <>
+            <span className="text-[12.5px] text-fg-muted">
+              かけた{path.length}曲を全部消して、最初から選び直します
+            </span>
+            <button
+              onClick={() => { setConfirmReset(false); setPath([]); }}
+              className="tap rounded-full border border-warn/50 bg-warn/10 px-4 text-[12.5px] text-warn"
+            >
+              リセットする
+            </button>
+            <button
+              onClick={() => setConfirmReset(false)}
+              className="tap rounded-full border border-border px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+            >
+              やめる
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setConfirmReset(true)}
+            className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
+            title="かけてきた順を全部消して、最初の1曲から選び直す"
+          >
+            リセット
+          </button>
+        )}
+      </div>
     </main>
   );
 }
 
-/** 最初の1曲を選ぶ。曲名・別名・原題のどれでも引っかかる（一覧画面と同じ数え方） */
+/**
+ * 曲を選ぶ一覧。**繋ぎが1本も無い曲も含めて全曲が並ぶ**（`mode="jump"` の存在意義がこれ）。
+ * 曲名・別名・原題のどれでも引っかかる（一覧画面と同じ数え方）。
+ *
+ * 並べ替えに使うのは `maxFrom`（サーバで計算済み）だけ。ここで本番用に数え直すと
+ * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
+ */
 function StartPicker({
-  tracks, maxFrom, onPick,
+  tracks, maxFrom, used, mode, onPick, onCancel,
 }: {
   tracks: Track[];
   maxFrom: Record<string, number>;
+  /** すでにかけた曲。外しはしないが、印を付けて後ろに回す */
+  used: ReadonlySet<string>;
+  mode: "start" | "jump";
   onPick: (id: string) => void;
+  /** 途中で開いたときだけ「やめる」で戻れる（かけてきた順は消さない） */
+  onCancel: (() => void) | null;
 }) {
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
@@ -352,14 +421,33 @@ function StartPicker({
         const hay = `${t.name} ${t.alias} ${t.fullTitle}`.toLowerCase();
         return words.every((w) => hay.includes(w));
       })
-      .sort((a, b) => (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1) || a.name.localeCompare(b.name, "ja"));
-  }, [q, tracks, maxFrom]);
+      .sort(
+        (a, b) =>
+          Number(used.has(a.id)) - Number(used.has(b.id)) ||
+          (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1) ||
+          a.name.localeCompare(b.name, "ja"),
+      );
+  }, [q, tracks, maxFrom, used]);
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
-      <h1 className="text-[22px] font-bold tracking-tight">最初にかける曲</h1>
+      <div className="flex items-start gap-2">
+        <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">
+          {mode === "jump" ? "次にかける曲" : "最初にかける曲"}
+        </h1>
+        {onCancel && (
+          <button
+            onClick={onCancel}
+            className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+          >
+            やめる
+          </button>
+        )}
+      </div>
       <p className="mt-1 text-[13px] text-fg-muted">
-        選ぶとここから繋げる先が並びます。長くつなげる曲が上です。
+        {mode === "jump"
+          ? "繋ぎが記録されていない曲へも移れます。選ぶと、繋いだ曲として続きから並びます。"
+          : "選ぶとここから繋げる先が並びます。長くつなげる曲が上です。"}
       </p>
       <input
         value={q}
@@ -377,6 +465,12 @@ function StartPicker({
               className="tap flex w-full items-center gap-2 rounded-card border border-border bg-surface px-3.5 text-left transition-colors hover:border-border-bright"
             >
               <span className="min-w-0 flex-1 break-words text-[15px]">{t.name}</span>
+              {/* 使い切りにする曲でも選べるようにはしておく（本番で戻すこともある）。印だけ付けて後ろへ */}
+              {used.has(t.id) && (
+                <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10.5px] text-fg-subtle">
+                  かけた
+                </span>
+              )}
               <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
                 {t.bpm ?? "–"} {t.musicalKey}
               </span>
@@ -395,7 +489,9 @@ function StartPicker({
         )}
       </ul>
       <p className="label mt-4">
-        <Link href="/" className="hover:text-fg-muted">一覧に戻る</Link>
+        {mode === "jump"
+          ? "「やめる」で、今かけている曲の一覧へ戻ります"
+          : <Link href="/" className="hover:text-fg-muted">一覧に戻る</Link>}
       </p>
     </main>
   );
