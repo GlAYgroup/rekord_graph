@@ -25,11 +25,17 @@ LOADED = set(_json(ROOT / "data/loaded_cue_uuids.json", []))
 
 
 def base_name(title: str) -> str:
-    """キュー名の頭に付ける短い曲名。別名があればそれ、無ければタイトルを刈り込む。"""
+    """キュー名の頭に付ける短い曲名。別名があればそれ、無ければタイトルを刈り込む。
+
+    括弧は**全角も切る**。実機のタイトルは `ベノム（Gakui bootleg）` の形なので、
+    半角だけ見ているとリミックス名まで短縮名に入る（アプリの `songName` は
+    全角も割っているので、揃えないと Notion とアプリで別の名前になる）。
+    """
     for key, alias in ALIASES.items():
         if key.lower() in title.lower():
             return alias
-    return title.split("(")[0].split("[")[0].strip()[:24] or title[:24]
+    import re
+    return re.split(r"[(\[（［]", title)[0].strip()[:24] or title[:24]
 
 
 def remix_tag(title: str) -> str:

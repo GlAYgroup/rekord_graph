@@ -49,6 +49,7 @@ def schema_tracks() -> dict:
         "別名": text(),
         "rekordboxID": text(),   # 正準ID（rekordbox の ContentID）
         "アーティスト": text(),
+        "ジャンル": text(),      # 実機のジャンル欄。分類は rekordbox 側で行う
         "BPM": number(),
         "Key": text(),
         "長さ秒": number(),

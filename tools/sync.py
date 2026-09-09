@@ -58,6 +58,9 @@ def nfc(s: str | None) -> str:
 # 📍Cues に無ければ生やす列。ループは rekordbox が正なので、鏡である Cues に載せる
 LOOP_COLUMNS = {"ループ": {"checkbox": {}}, "ループ終ms": {"number": {}}}
 
+# 🎵Tracks に無ければ生やす列。ジャンルも実機で分類するものなので、鏡に載せる
+TRACK_COLUMNS = {"ジャンル": {"rich_text": {}}}
+
 
 def ensure_loop_columns() -> None:
     """📍Cues に「ループ」「ループ終ms」列が無ければ足す。
@@ -71,6 +74,16 @@ def ensure_loop_columns() -> None:
         return
     print(f"📍Cues に列を追加します: {' / '.join(missing)}")
     na.request("PATCH", f"/databases/{CUES}", {"properties": missing})
+
+
+def ensure_track_columns() -> None:
+    """🎵Tracks に足りない列を生やす。`ensure_loop_columns` と同じ理由・同じ流儀。"""
+    db = na.request("GET", f"/databases/{na.CONFIG['tracks']}")
+    missing = {k: v for k, v in TRACK_COLUMNS.items() if k not in (db.get("properties") or {})}
+    if not missing:
+        return
+    print(f"🎵Tracks に列を追加します: {' / '.join(missing)}")
+    na.request("PATCH", f"/databases/{na.CONFIG['tracks']}", {"properties": missing})
 
 
 def loop_props(r: dict) -> dict:
@@ -200,6 +213,21 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
         plan.append({"kind": "track_add", "uuid": tid, "track": t,
                      "summary": f"新しい曲: {_track_title(t)}"})
 
+    # 既存の曲行が実機とズレていたら直す。
+    # **これが無いと、実機で曲名やアーティストを整えても Notion に一生届かない**
+    # （`track_add` は新規作成しかしないため。実測 2026-09-09: 71件中57件が古いまま残っていた）。
+    # 🎵Tracks は rekordbox の鏡なので、実機の値で上書きしてよい。
+    for rbid, page_id in pages.items():
+        t = _RB_TRACKS.get(rbid)
+        if not t:
+            continue  # 実機から消えた曲は下の track_delete が扱う
+        now, want = _TRACK_NOW.get(rbid, {}), track_values(t)
+        changes = [(k, fmt_value(now.get(k)), fmt_value(want[k]))
+                   for k in want if not same_value(now.get(k), want[k])]
+        if changes:
+            plan.append({"kind": "track_update", "pageId": page_id, "track": t,
+                         "changes": changes, "summary": _track_title(t)})
+
     # rekordbox から消えた曲。キューと違って曲行はこれまで消していなかったので、
     # リネーム等で置き換わった古い行が 🎵Tracks に残り続ける
     # （アプリの曲一覧に「0キュー」の重複として出る。実測: イワンポルカ旧行）。
@@ -221,7 +249,7 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
                              "summary": f"rekordbox から消えた曲: {title}"})
 
     order = {"rekey": 0, "update": 1, "delete": 2, "track_delete": 3, "track_hold": 4,
-             "track_add": 5, "add": 6, "notice": 7}
+             "track_add": 5, "add": 6, "track_update": 7, "notice": 8}
     plan.sort(key=lambda x: (order[x["kind"]], x["summary"]))
     return plan
 
@@ -313,7 +341,8 @@ def rekey(plan: list[dict]) -> None:
 
 
 LABEL = {"rekey": "作り直し", "update": "変更", "delete": "削除", "track_delete": "曲削除",
-         "track_hold": "曲削除(保留)", "track_add": "曲追加", "add": "追加", "notice": "位置のみ"}
+         "track_hold": "曲削除(保留)", "track_add": "曲追加", "add": "追加",
+         "track_update": "曲更新", "notice": "位置のみ"}
 
 
 def show(item: dict, i: int, total: int) -> None:
@@ -330,6 +359,9 @@ def show(item: dict, i: int, total: int) -> None:
         print("        ※ 🎵Tracks の行をアーカイブします（キュー0件・🔀Transitions 参照0件を確認済み）")
     if item["kind"] == "track_hold":
         print("        ※ 自動では消しません。解消されるまで次回の sync でも出ます")
+    if item["kind"] == "track_update":
+        print("        ※ 🎵Tracks は rekordbox の鏡。実機で整えた曲名・アーティスト・"
+              "ジャンルをそのまま写します（キューと繋ぎには触りません）")
 
 
 def _track_title(t: dict) -> str:
@@ -338,23 +370,67 @@ def _track_title(t: dict) -> str:
     return title if short == title else f"{short} / {title}"
 
 
+def same_value(a, b) -> bool:
+    """曲行の1項目が同じか。**数は数として比べる** —
+    Notion は `160`、rekordbox は `160.0` を返すので、文字列で比べると
+    71曲すべてに「BPM が変わった」という嘘の差分が出る。
+    """
+    if a is None and b is None:
+        return True
+    if isinstance(a, (int, float)) or isinstance(b, (int, float)):
+        if a is None or b is None:
+            return False
+        try:
+            return abs(float(a) - float(b)) < 1e-6
+        except (TypeError, ValueError):
+            return False
+    return nfc(str(a or "")) == nfc(str(b or ""))
+
+
+def fmt_value(v) -> str:
+    """差分表示用。空は「(空)」、整数で表せる数は小数点を出さない。"""
+    if v is None or v == "":
+        return "(空)"
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v))
+    return str(v)
+
+
+def track_values(t: dict) -> dict:
+    """rekordbox が正とする曲行の中身。追加と更新で同じ組み立てを使う。"""
+    return {
+        "曲名": _track_title(t),
+        "別名": t["shortName"],
+        "アーティスト": t.get("artist") or "",
+        "ジャンル": t.get("genre") or "",
+        "BPM": t.get("bpm") or None,
+        "Key": t.get("key") or "",
+        "長さ秒": t.get("durationSec") or None,
+        "ファイルパス": t.get("filePath") or "",
+    }
+
+
+def track_props(t: dict) -> dict:
+    """`track_values` を Notion のプロパティ形に変える。"""
+    v = track_values(t)
+    text_keys = ("曲名", "別名", "アーティスト", "ジャンル", "Key", "ファイルパス")
+    out = {k: (na.title_prop(v[k]) if k == "曲名" else na.text_prop(v[k])) for k in text_keys}
+    out["rekordboxID"] = na.text_prop(t["id"])
+    out["BPM"] = {"number": v["BPM"]}
+    out["長さ秒"] = {"number": v["長さ秒"]}
+    return out
+
+
 def apply(item: dict) -> None:
     if item["kind"] == "track_add":
         t = item["track"]
         page = na.request("POST", "/pages", {
             "parent": {"database_id": na.CONFIG["tracks"]},
-            "properties": {
-                "曲名": na.title_prop(_track_title(t)),
-                "別名": na.text_prop(t["shortName"]),
-                "rekordboxID": na.text_prop(t["id"]),
-                "アーティスト": na.text_prop(t.get("artist") or ""),
-                "BPM": {"number": t.get("bpm") or None},
-                "Key": na.text_prop(t.get("key") or ""),
-                "長さ秒": {"number": t.get("durationSec") or None},
-                "ファイルパス": na.text_prop(t.get("filePath") or ""),
-            },
+            "properties": track_props(t),
         })
         _track_pages()[t["id"]] = page["id"]  # 直後の「追加」がこの曲を参照できるように
+    elif item["kind"] == "track_update":
+        na.request("PATCH", f"/pages/{item['pageId']}", {"properties": track_props(item["track"])})
     elif item["kind"] == "add":
         r = item["rb"]
         na.request("POST", "/pages", {
@@ -393,6 +469,7 @@ def apply(item: dict) -> None:
 
 _TRACK_PAGES: dict[str, str] | None = None
 _TRACK_TITLES: dict[str, str] = {}  # Notion の曲ページID -> 曲名（消えた曲を人に見せるときに使う）
+_TRACK_NOW: dict[str, dict] = {}    # rekordbox の曲ID -> Notion 上の現在値（更新の差分用）
 
 
 def _track_pages() -> dict[str, str]:
@@ -401,10 +478,22 @@ def _track_pages() -> dict[str, str]:
     if _TRACK_PAGES is None:
         _TRACK_PAGES = {}
         for page in na.query_all(na.CONFIG["tracks"]):
-            rid = na.plain(page["properties"].get("rekordboxID"))
+            p = page["properties"]
+            rid = na.plain(p.get("rekordboxID"))
             if rid:
                 _TRACK_PAGES[rid] = page["id"]
-                _TRACK_TITLES[page["id"]] = na.plain(page["properties"].get("曲名"))
+                _TRACK_TITLES[page["id"]] = na.plain(p.get("曲名"))
+                _TRACK_NOW[rid] = {
+                    "曲名": na.plain(p.get("曲名")),
+                    "別名": na.plain(p.get("別名")),
+                    "アーティスト": na.plain(p.get("アーティスト")),
+                    # 列がまだ無いワークスペースでも動く（無ければ空。書く直前に生える）
+                    "ジャンル": na.plain(p.get("ジャンル")),
+                    "BPM": (p.get("BPM") or {}).get("number"),
+                    "Key": na.plain(p.get("Key")),
+                    "長さ秒": (p.get("長さ秒") or {}).get("number"),
+                    "ファイルパス": na.plain(p.get("ファイルパス")),
+                }
     return _TRACK_PAGES
 
 
@@ -488,7 +577,8 @@ def main() -> int:
         print("\n何も反映しませんでした。")
         return 0
 
-    ensure_loop_columns()  # ループ列が無いワークスペースでは、ここで1度だけ生える
+    ensure_loop_columns()   # ループ列が無いワークスペースでは、ここで1度だけ生える
+    ensure_track_columns()  # 同じくジャンル列
     print(f"\n{len(approved)} 件を Notion に反映します…")
     for item in approved:
         apply(item)

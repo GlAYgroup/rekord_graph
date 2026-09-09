@@ -119,6 +119,7 @@ def export(only: str | None = None) -> dict:
                     "id": str(t.ID),
                     "title": t.Title or "",
                     "artist": t.Artist.Name if t.Artist else None,
+                    "genre": t.Genre.Name if t.Genre else None,
                     "bpm": round((t.BPM or 0) / 100.0, 2),
                     "key": t.Key.ScaleName if t.Key else None,
                     "durationSec": t.Length or None,  # 波形タイムラインを正しい比率で描くのに要る
