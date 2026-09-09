@@ -108,6 +108,11 @@ export function PlayDeck({
     try { localStorage.setItem(STORAGE, JSON.stringify(path)); } catch { /* 使えなければ残さない */ }
   }, [path, restored]);
 
+  // 一覧と行き先カードは別の長さの画面なのに、切り替えても縦位置は残る。
+  // 3枚目まで送ってから「曲を変える」を押すと、84曲の一覧の途中（検索欄も「やめる」も
+  // 画面の外）から始まってしまうので、開くときと閉じるときだけ上に戻す
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [picking]);
+
   const currentId = path[path.length - 1] ?? null;
   const current = currentId ? trackById.get(currentId) : undefined;
   /** すでにかけた曲（今の曲を含む）。本番中はここへ入る繋ぎを使わない */
