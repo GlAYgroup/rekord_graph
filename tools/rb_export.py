@@ -85,6 +85,12 @@ def export(only: str | None = None) -> dict:
 
         playlists_by_track: dict[str, list[str]] = defaultdict(list)
         for pl in db.get_playlist():
+            # フォルダは「曲が入る場所」ではないので飛ばす。
+            # 中身を訊くと pyrekordbox が ValueError を投げて export ごと落ちる
+            # （実際に落ちた: 2026-09-11、プレイリストを「ボカロ」フォルダにまとめた直後）。
+            # 判定は pyrekordbox 自身が使っている is_folder に合わせる（Attribute の値を自前で持たない）
+            if pl.is_folder:
+                continue
             for t in db.get_playlist_contents(pl):
                 playlists_by_track[str(t.ID)].append(pl.Name)
 
