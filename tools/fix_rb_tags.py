@@ -37,6 +37,22 @@ CHANGES = {
     # 原曲は「みむかｩわナイストライ」（Mimukauwa Nice Try はローマ字表記）。アーティストは未確認
     "みむかｩわナイストライ (Hexacube's HARDCORE-style Bootleg)":
         {"title": "みむかｩわナイストライ（Hexacube's bootleg）"},
+
+    # ── 2026-09-11 第3回: 取り込んだ6曲のうち、表示名が壊れていた分 ──
+    # タイトルが「アーティスト - 曲名」の形だったため、表示名を作る base_name() が
+    # 最初の括弧で切って 'iroha' = アーティスト名だけになっていた（曲名が丸ごと消える）
+    "iroha(sasaki) - 炉心融解 (feat. 鏡音リン) [HXLLCXTZ & Nyacktas Remix] [Supported by TeddyLoid]":
+        {"title": "炉心融解（HXLLCXTZ & Nyacktas remix）", "artist": "iroha(sasaki)"},
+    # 【】は base_name() が切る括弧に入っていないので、レーベル番号ごと表示名に残っていた。
+    # アーティストはリミキサー(RAVERS SQUAD)が入っていたので原曲のじんに直す
+    "【RSB-005】じん - カゲロウデイズ(RAVERS SQUAD Bootleg)":
+        {"title": "カゲロウデイズ（RAVERS SQUAD bootleg）", "artist": "じん"},
+    # MELTDOWN は炉心融解の英題。原曲表記に合わせる（本人確認済み 2026-09-11）。
+    # 上の炉心融解と同名になるが、短縮名の衝突時はリミックス名が自動で付いて区別される
+    "✨ MELTDOWN ✨": {"title": "炉心融解（DJ ADSL remix）", "artist": "iroha(sasaki)"},
+    # artist が空だった。原曲は BUMP OF CHICKEN「ray」(feat. 初音ミク)
+    "ray (超かぐや姫！ Version) warapi Bootleg Remix v4":
+        {"title": "ray（warapi bootleg）", "artist": "BUMP OF CHICKEN"},
 }
 
 
