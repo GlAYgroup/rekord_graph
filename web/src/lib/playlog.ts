@@ -1,0 +1,103 @@
+/**
+ * プレイ画面（`/play`）が端末に残すもの = **今のセットの途中**と、**終わったセットの履歴**。
+ *
+ * かけてきた順はその場その場の話なので Notion には書かない（CLAUDE.md の約束）。
+ * 履歴も同じ性質のものなので、**localStorage だけ**が持つ。
+ *
+ * 1手 = `{ かけた曲, その曲へ入るのに使った繋ぎ }`。
+ * 繋ぎが `null` なのは「曲を変える」で記録に無い曲へ移ったとき。
+ * 後から曲の組でひき直すことはできない（同じ2曲の間に繋ぎが複数あるため）ので、
+ * **押した繋ぎの ID をその場で残す**。
+ */
+
+export type PlayStep = {
+  trackId: string;
+  /** この曲へ入るのに使った 🔀Transitions の ID。「曲を変える」で移ったときは null */
+  viaTransitionId: string | null;
+};
+
+export type PlaySet = {
+  id: string;
+  /** 終わった（＝リセット / 別のセットに置き換わった）時刻 */
+  endedAt: number;
+  steps: PlayStep[];
+};
+
+/** 今のセットの途中。v1 は曲IDの配列だけだったので、読むときに 1度だけ拾い直す */
+const CURRENT = "rg.play.v2";
+const CURRENT_V1 = "rg.play.v1";
+const HISTORY = "rg.play.history.v1";
+
+/** 履歴の上限。端末に無限に貯めない（古いものから捨てる） */
+const MAX_SETS = 50;
+
+const isStep = (x: unknown): x is PlayStep =>
+  !!x && typeof x === "object" &&
+  typeof (x as PlayStep).trackId === "string" &&
+  ((x as PlayStep).viaTransitionId === null || typeof (x as PlayStep).viaTransitionId === "string");
+
+const parse = (key: string): unknown => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; } // 使えない端末（プライベートモード等）では何も残さない
+};
+
+const write = (key: string, value: unknown) => {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 残せなければ諦める */ }
+};
+
+/** 今のセットの途中を読む。v1（曲IDだけ）で残っていた分は繋ぎ不明として拾う */
+export function readCurrent(): PlayStep[] {
+  const v2 = parse(CURRENT);
+  if (Array.isArray(v2)) return v2.filter(isStep);
+  const v1 = parse(CURRENT_V1);
+  if (Array.isArray(v1)) {
+    return v1
+      .filter((x): x is string => typeof x === "string")
+      .map((trackId) => ({ trackId, viaTransitionId: null }));
+  }
+  return [];
+}
+
+export function writeCurrent(steps: PlayStep[]) {
+  write(CURRENT, steps);
+}
+
+export function readHistory(): PlaySet[] {
+  const raw = parse(HISTORY);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (s): s is PlaySet =>
+        !!s && typeof s === "object" &&
+        typeof (s as PlaySet).id === "string" &&
+        typeof (s as PlaySet).endedAt === "number" &&
+        Array.isArray((s as PlaySet).steps),
+    )
+    .map((s) => ({ ...s, steps: s.steps.filter(isStep) }));
+}
+
+/**
+ * 終わったセットを履歴の先頭に積む。
+ *
+ * **1曲だけのセットは残さない** — 繋いだ記録が1本も無く、履歴として読むものが無いため。
+ * 曲が rekordbox から消えていても ID はそのまま残す（読むときに「不明な曲」として出す。
+ * 落として詰めると、セットの中の1手が黙って消える方が困る）。
+ */
+export function archive(steps: PlayStep[]): PlaySet | null {
+  if (steps.length < 2) return null;
+  const set: PlaySet = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    endedAt: Date.now(),
+    steps,
+  };
+  write(HISTORY, [set, ...readHistory()].slice(0, MAX_SETS));
+  return set;
+}
+
+export function deleteSet(id: string): PlaySet[] {
+  const rest = readHistory().filter((s) => s.id !== id);
+  write(HISTORY, rest);
+  return rest;
+}

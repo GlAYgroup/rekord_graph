@@ -1,7 +1,7 @@
 import { GraphExplorer } from "@/components/graph/GraphExplorer";
 import { TreeMixView } from "@/components/graph/TreeMixView";
 import type { GEdge, GNode, PanelData, RouteMap } from "@/components/graph/types";
-import { cueLabel } from "@/lib/format";
+import { bpmDelta, cueLabel } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 import { computeLayout } from "@/lib/layout";
 import { listPatterns } from "@/lib/patterns";
@@ -83,10 +83,28 @@ export default async function GraphPage({
     const from = g.trackById.get(t.fromTrackId);
     panel[t.fromTrackId]?.out.push({
       ...item, otherId: t.toTrackId, otherName: to?.name ?? "?", otherBpm: to?.bpm ?? null,
+      otherMaxFrom: routes[t.toTrackId]?.trackIds.length ?? 1,
     });
     panel[t.toTrackId]?.in.push({
       ...item, otherId: t.fromTrackId, otherName: from?.name ?? "?", otherBpm: from?.bpm ?? null,
+      otherMaxFrom: routes[t.fromTrackId]?.trackIds.length ?? 1,
     });
+  }
+  // 並びは「その曲から先につなげる曲数」が多い順 = /play の一覧と同じ問いに同じ答えを出す。
+  // 同数ならテンポの近い順（ピッチを触らずに済むものから）→ 曲名 → ID
+  // （同じ選択で毎回同じ並びになるように、最後は必ず一意なもので決める）
+  for (const id of Object.keys(panel)) {
+    const bpm = g.trackById.get(id)?.bpm ?? null;
+    const near = (b: number | null) => Math.abs(bpmDelta(bpm, b) ?? 999);
+    for (const dir of ["out", "in"] as const) {
+      panel[id][dir].sort(
+        (a, b) =>
+          b.otherMaxFrom - a.otherMaxFrom ||
+          near(a.otherBpm) - near(b.otherBpm) ||
+          a.otherName.localeCompare(b.otherName, "ja") ||
+          a.id.localeCompare(b.id),
+      );
+    }
   }
 
   const connected = new Set(g.transitions.flatMap((t) => [t.fromTrackId, t.toTrackId]));

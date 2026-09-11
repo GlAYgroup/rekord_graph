@@ -25,6 +25,11 @@ export type PanelTransition = {
   otherName: string;
   /** 相手の曲の BPM。テンポが合うかは曲名の次に見るものなので、行ごとに持たせる */
   otherBpm: number | null;
+  /**
+   * 相手の曲から最大何曲つなげるか（`GNode.maxFrom` と同じ数）。
+   * 一覧はこれが多い順に並ぶ = 先の長い枝から見える。
+   */
+  otherMaxFrom: number;
   fromCue: string; // 「G「助走 1サビ終受け」」形式
   toCue: string;
   comment: string;

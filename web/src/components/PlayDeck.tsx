@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CueLine } from "./CuePad";
 import { usePerformance } from "./PerformanceMode";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
+import { archive, readCurrent, writeCurrent, type PlayStep } from "@/lib/playlog";
 import { maxOnwardFrom } from "@/lib/route";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -35,18 +36,11 @@ import type { Cue, Track, Transition } from "@/lib/types";
  *
  * 「戻す」「曲を変える」「リセット」は Notion に何も書かないので `data-edit` を付けない。
  * 本番中に畳んでしまうと、急な差し替えから戻る道が無くなる。
+ *
+ * ★ セットが終わる（リセット / 別の曲から開き直す）と、**かけてきた順は履歴として端末に残る**
+ *   （`lib/playlog.ts`。一覧は `/play/history`）。そのため1手ごとに「押した繋ぎの ID」も
+ *   一緒に持つ — 同じ2曲の間に繋ぎが複数あることがあり、後から曲の組ではひき直せない。
  */
-
-const STORAGE = "rg.play.v1";
-
-/** 端末に残す。リロードやアプリの切り替えでセットの途中が消えると困る */
-const readStored = (): string[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
-  } catch { return []; }
-};
 
 export function PlayDeck({
   tracks, cues, transitions, maxFrom, initialTrackId,
@@ -60,10 +54,19 @@ export function PlayDeck({
 }) {
   const { on: performing } = usePerformance();
 
-  /** かけてきた順。最後が「今かけている曲」 */
-  const [path, setPath] = useState<string[]>(initialTrackId ? [initialTrackId] : []);
+  /** かけてきた順。最後が「今かけている曲」。1手 = 曲 + そこへ入るのに使った繋ぎ */
+  const [steps, setSteps] = useState<PlayStep[]>(
+    initialTrackId ? [{ trackId: initialTrackId, viaTransitionId: null }] : [],
+  );
+  const path = useMemo(() => steps.map((s) => s.trackId), [steps]);
   /** 端末に残した続きを読むのは mount 後（サーバの描画と食い違わせない） */
   const [restored, setRestored] = useState(false);
+  /**
+   * 「最初の1回だけ」の見張りは state ではなく ref。
+   * `setRestored(true)` は次の描画まで効かないので、effect が2回走る場面（開発時の
+   * StrictMode など）では state だと素通りする = 履歴に同じセットが2つ積まれる
+   */
+  const initRef = useRef(false);
   /** 曲一覧を開いているか（＝繋ぎに無い曲へ移る途中）。かけてきた順はそのまま */
   const [picking, setPicking] = useState(false);
   /** リセットは2タップ。暗所で片手でも誤爆しないように、押してから確かめる */
@@ -91,22 +94,25 @@ export function PlayDeck({
   }, [transitions]);
 
   useEffect(() => {
-    if (restored) return;
+    if (initRef.current) return;
+    initRef.current = true;
     setRestored(true);
     if (initialTrackId) {
       // 曲を指定して来た人が優先。ただし指定は URL から外す
       // （セットの途中で再読み込みしたときに、また最初の曲へ戻されないように）
+      // 途中だったセットはここで終わる = 捨てずに履歴へ残す
+      archive(readCurrent().filter((s) => trackById.has(s.trackId)));
       window.history.replaceState(null, "", "/play");
       return;
     }
-    const stored = readStored().filter((id) => trackById.has(id));
-    if (stored.length) setPath(stored);
-  }, [restored, initialTrackId, trackById]);
+    const stored = readCurrent().filter((s) => trackById.has(s.trackId));
+    if (stored.length) setSteps(stored);
+  }, [initialTrackId, trackById]);
 
   useEffect(() => {
     if (!restored) return;
-    try { localStorage.setItem(STORAGE, JSON.stringify(path)); } catch { /* 使えなければ残さない */ }
-  }, [path, restored]);
+    writeCurrent(steps);
+  }, [steps, restored]);
 
   // 一覧と行き先カードは別の長さの画面なのに、切り替えても縦位置は残る。
   // 3枚目まで送ってから「曲を変える」を押すと、84曲の一覧の途中（検索欄も「やめる」も
@@ -177,7 +183,12 @@ export function PlayDeck({
         mode={current ? "jump" : "start"}
         onPick={(id) => {
           setPicking(false);
-          setPath((p) => (current ? [...p, id] : [id]));
+          // 記録に無い繋ぎで移ったときは繋ぎ ID を残さない（履歴でもそう出す）
+          setSteps((p) =>
+            current
+              ? [...p, { trackId: id, viaTransitionId: null }]
+              : [{ trackId: id, viaTransitionId: null }],
+          );
         }}
         onCancel={current ? () => setPicking(false) : null}
       />
@@ -205,7 +216,7 @@ export function PlayDeck({
           <div className="flex shrink-0 gap-1.5">
             {path.length > 1 && (
               <button
-                onClick={() => setPath((p) => p.slice(0, -1))}
+                onClick={() => setSteps((p) => p.slice(0, -1))}
                 className="tap rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-muted hover:text-fg"
               >
                 戻す
@@ -227,7 +238,7 @@ export function PlayDeck({
             {path.slice(0, -1).map((id, i) => (
               <span key={`${id}-${i}`} className="shrink-0">
                 {i > 0 && <span className="mx-1">→</span>}
-                <button onClick={() => setPath(path.slice(0, i + 1))} className="hover:text-fg-muted">
+                <button onClick={() => setSteps(steps.slice(0, i + 1))} className="hover:text-fg-muted">
                   {trackById.get(id)?.name ?? "?"}
                 </button>
               </span>
@@ -268,7 +279,7 @@ export function PlayDeck({
             return (
               <li key={t.id}>
                 <button
-                  onClick={() => setPath((p) => [...p, t.toTrackId])}
+                  onClick={() => setSteps((p) => [...p, { trackId: t.toTrackId, viaTransitionId: t.id }])}
                   className="flex w-full gap-3 rounded-card border border-border bg-linear-to-b from-surface to-surface-2 p-3 text-left transition-colors hover:border-border-bright active:border-hot/60 sm:gap-4 sm:p-4"
                   style={{ boxShadow: "var(--shadow-card)" }}
                 >
@@ -361,18 +372,19 @@ export function PlayDeck({
       </p>
 
       {/*
-        リセット = かけてきた順を全部捨てて、最初の1曲から選び直す。
+        リセット = かけてきた順を一区切りにして、最初の1曲から選び直す。
         **一番下に置き、2タップにする。** 「戻す」「曲を変える」の隣に同じ大きさで置くと、
-        暗いブースで押し間違えたときにセットの記録が消える（消したものは戻せない）
+        暗いブースで押し間違えたときにセットが終わってしまう。
+        押した分は消さずに履歴へ積む（`archive`）ので、後から `/play/history` で読み返せる
       */}
       <div className="mt-6 flex flex-wrap items-center justify-center gap-2 border-t border-border pt-4">
         {confirmReset ? (
           <>
             <span className="text-[12.5px] text-fg-muted">
-              かけた{path.length}曲を全部消して、最初から選び直します
+              かけた{path.length}曲を履歴に残して、最初から選び直します
             </span>
             <button
-              onClick={() => { setConfirmReset(false); setPath([]); }}
+              onClick={() => { setConfirmReset(false); archive(steps); setSteps([]); }}
               className="tap rounded-full border border-warn/50 bg-warn/10 px-4 text-[12.5px] text-warn"
             >
               リセットする
@@ -385,13 +397,21 @@ export function PlayDeck({
             </button>
           </>
         ) : (
-          <button
-            onClick={() => setConfirmReset(true)}
-            className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
-            title="かけてきた順を全部消して、最初の1曲から選び直す"
-          >
-            リセット
-          </button>
+          <>
+            <button
+              onClick={() => setConfirmReset(true)}
+              className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
+              title="ここまでを履歴に残して、最初の1曲から選び直す"
+            >
+              リセット
+            </button>
+            <Link
+              href="/play/history"
+              className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
+            >
+              履歴
+            </Link>
+          </>
         )}
       </div>
     </main>
@@ -454,6 +474,16 @@ function StartPicker({
           ? "繋ぎが記録されていない曲へも移れます。選ぶと、繋いだ曲として続きから並びます。"
           : "選ぶとここから繋げる先が並びます。長くつなげる曲が上です。"}
       </p>
+      {/* リセットの直後に立つのがこの画面なので、**曲の一覧より上に**履歴の入口を置く
+          （84曲の下に置くと、前のセットを見返したい人には届かない） */}
+      {mode === "start" && (
+        <Link
+          href="/play/history"
+          className="tap mt-3 flex items-center justify-center rounded-card border border-border bg-surface text-center text-[13px] text-fg-muted transition-colors hover:border-border-bright hover:text-fg"
+        >
+          前にかけたセットを見る →
+        </Link>
+      )}
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}

@@ -1140,9 +1140,11 @@ export function GraphExplorer({
                 <section key={dir}>
                   {/* 見出しの色 = グラフの線の色。どっちの色がどっちの向きかを、
                       凡例を読まなくても選んだその場で結び付けられるようにする */}
-                  <h3 className={`label mb-1.5 ${dir === "out" ? "text-accent" : "text-incoming"}`}>
+                  <h3 className={`label ${dir === "out" ? "text-accent" : "text-incoming"}`}>
                     {dir === "out" ? "ここから行ける" : "ここに入ってこれる"} · {selPanel[dir].length}
                   </h3>
+                  {/* 並びの根拠は書いておく。数字が右に出ているだけだと「なぜこの順か」が読めない */}
+                  <p className="label mb-1.5 text-fg-subtle">この先つなげる曲数が多い順</p>
                   <ul className="space-y-1.5">
                     {selPanel[dir].map((t) => (
                       <li key={t.id} className="rounded-lg border border-border bg-surface-2">
@@ -1150,15 +1152,25 @@ export function GraphExplorer({
                           onClick={() => { setSelected(t.otherId); centerOn(t.otherId); }}
                           className="block w-full rounded-t-lg px-3 py-2 text-left transition-colors hover:bg-elevated"
                         >
-                          {/* 曲名の右に BPM。行き先/入り元のテンポが分からないと、
-                              パネルだけでは「その繋ぎが今できるか」を判断できない */}
+                          {/* 曲名の右に BPM と「この先つなげる曲数」。
+                              テンポが分からないと「その繋ぎが今できるか」を、
+                              先の長さが分からないと「そこへ行って続くか」を、
+                              パネルだけでは判断できない（一覧はこの数が多い順） */}
                           <span className="flex items-baseline gap-2 text-[13.5px]">
                             <span className="min-w-0 flex-1 break-words">
                               {dir === "out" ? "▸ " : "◂ "}{t.otherName}
                             </span>
-                            <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
-                              {t.otherBpm ?? "–"}
-                              <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
+                            <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[11px] tabular-nums">
+                              <span className="text-fg-subtle">
+                                {t.otherBpm ?? "–"}
+                                <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
+                              </span>
+                              <span
+                                className={t.otherMaxFrom > 1 ? "text-hot" : "text-fg-subtle"}
+                                title={`${t.otherName} から先は最大${t.otherMaxFrom}曲つなげます（全曲を使える前提）`}
+                              >
+                                {t.otherMaxFrom > 1 ? `最大${t.otherMaxFrom}曲` : "行き止まり"}
+                              </span>
                             </span>
                           </span>
                           <span className="block font-mono text-[11px] text-fg-subtle break-words">
