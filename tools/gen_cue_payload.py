@@ -6,7 +6,7 @@
 Notion のリレーション選択はタイトルの部分一致で絞れるので、
 Transitions で曲名を打てばその曲のキューだけが並ぶ。
 """
-import json, sys
+import json, re, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -34,33 +34,83 @@ def base_name(title: str) -> str:
     for key, alias in ALIASES.items():
         if key.lower() in title.lower():
             return alias
-    import re
     return re.split(r"[(\[（［]", title)[0].strip()[:24] or title[:24]
 
 
-def remix_tag(title: str) -> str:
-    """同じ短縮名の曲が複数あるときに付ける識別子。リミックス名を拾う。"""
-    import re
+REMIX_WORD = re.compile(r"(?i)^(remix|bootleg|edit|flip|vip|mix|ver|version|remaster|&)$")
+
+
+def _uniq(xs: list) -> list:
+    out, seen = [], set()
+    for x in xs:
+        if x and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+
+def tag_candidates(title: str) -> list:
+    """短縮名が衝突したときに付ける識別子の**候補**。前から順に試す。
+
+    「先頭の語 → 末尾の語 → 全部つなげたもの」の順。1つでは足りない:
+    `フォニイ（unknown bootleg・0db）` と `フォニイ（unknown bootleg・phony）` は
+    **先頭の語がどちらも unknown** なので、末尾まで見ないと区別が付かない。
+    """
     for m in re.findall(r"[(（\[]([^)）\]]+)[)）\]]", title):
         m = m.strip()
-        if not m or m[0].isdigit() or re.match(r"(?i)^(ft\.|feat\.)", m):
+        if not m or re.match(r"(?i)^(ft\.|feat\.)", m):
             continue  # 「ft. 重音テト」等は曲の区別にならない
-        return re.split(r"\s+", m)[0][:12]
-    return title.split("_")[-1][:12] or title[:12]
+        # 「・」でも割る（リミキサー名の後ろに版の違いが付くことがある）。
+        # **数字だけの語**（`(2)` `(2019)`）は区別にならないので落とす。
+        # 以前は「先頭が数字の語」を丸ごと捨てていたため `6Tan` のような名前まで弾かれ、
+        # フォールバックのゴミ（`フォニイ(フォニイ（6Tan bo)`）が表示名になっていた
+        parts = [p for p in re.split(r"[\s・]+", m) if p and not re.fullmatch(r"[\d.]+", p)]
+        if not parts:
+            continue
+        core = [p for p in parts if not REMIX_WORD.match(p)] or parts
+        return _uniq([core[0][:12], core[-1][:12], " ".join(core)[:20]])
+    # 括弧が無い形（`..._Wipecore_VIP_Remix_v3`）。最後の `_` の後ろを使う
+    tail = title.split("_")[-1].strip()
+    return _uniq([tail[:12]]) if tail and tail != title else []
 
 
 def build_short_names(tracks: list) -> dict:
-    """曲ID -> 一意な短縮名。衝突したものだけリミックス名を付ける。
+    """曲ID -> **一意な**短縮名。衝突したものだけ識別子を付ける。
 
-    ここが曖昧だと、入力時に別の曲のキューを選んでしまう。必ず一意にする。
+    ここが曖昧だと、Notion の 📍Cues でどの曲のキューか見分けが付かない
+    （リレーションの候補もこの名前で絞る）。**一意であることを必ず保証する。**
+
+    識別子を付けるのは衝突したものだけ。原曲そのもの（括弧が無い）は素の曲名のまま
+    残るので、`人マニア` と `人マニア(Nemonoika)` のように自然に分かれる。
     """
     groups: dict[str, list] = {}
     for t in tracks:
         groups.setdefault(base_name(t["title"]), []).append(t)
     out = {}
     for base, ts in groups.items():
-        for t in ts:
-            out[t["id"]] = base if len(ts) == 1 else f"{base}({remix_tag(t['title'])})"
+        if len(ts) == 1:
+            out[ts[0]["id"]] = base
+            continue
+        ts = sorted(ts, key=lambda t: t["id"])  # 同じ入力なら毎回同じ名前になるように
+        cands = {t["id"]: tag_candidates(t["title"]) for t in ts}
+        names: dict = {}
+        for depth in range(3):
+            names = {}
+            for t in ts:
+                c = cands[t["id"]]
+                names[t["id"]] = f"{base}({c[min(depth, len(c) - 1)]})" if c else base
+            if len(set(names.values())) == len(ts):
+                break
+        else:
+            # **ここが一意性の最後の砦**（候補を使い切っても重なった場合）。
+            # 消さないこと。id 順に振るので、実行するたびに名前が入れ替わることはない
+            seen: dict = {}
+            for t in ts:
+                n = names[t["id"]]
+                seen[n] = seen.get(n, 0) + 1
+                if seen[n] > 1:
+                    names[t["id"]] = f"{n}#{seen[n]}"
+        out.update(names)
     return out
 
 
