@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CueLine } from "./CuePad";
 import { usePerformance } from "./PerformanceMode";
+import { PracticeToggle } from "./PracticeToggle";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
@@ -277,11 +278,16 @@ export function PlayDeck({
             const fromCue = cueById.get(t.fromCueId);
             const toCue = cueById.get(t.toCueId);
             return (
-              <li key={t.id}>
+              // 枠は li が持つ。「要練習」は送るボタンの**外**に出す
+              // （ボタンの中にボタンは置けないうえ、入れるとタップが曲送りに食われる）
+              <li
+                key={t.id}
+                className="rounded-card border border-border bg-linear-to-b from-surface to-surface-2 transition-colors hover:border-border-bright active:border-hot/60"
+                style={{ boxShadow: "var(--shadow-card)" }}
+              >
                 <button
                   onClick={() => setSteps((p) => [...p, { trackId: t.toTrackId, viaTransitionId: t.id }])}
-                  className="flex w-full gap-3 rounded-card border border-border bg-linear-to-b from-surface to-surface-2 p-3 text-left transition-colors hover:border-border-bright active:border-hot/60 sm:gap-4 sm:p-4"
-                  style={{ boxShadow: "var(--shadow-card)" }}
+                  className="flex w-full gap-3 rounded-card p-3 text-left sm:gap-4 sm:p-4"
                 >
                   {/* ── 左: どのキューからどのキューへ・どう繋ぐか（全文） ── */}
                   <div className="min-w-0 flex-1 space-y-2">
@@ -354,13 +360,28 @@ export function PlayDeck({
                         ? `この先${n.count}曲${n.truncated ? "以上" : ""}`
                         : "行き止まり"}
                     </span>
-                    {t.practice && (
+                    {/* 本番中はトグルを出さないので、印だけここに出す。
+                        下見中は下の帯のトグルが同じことを言うので重ねない */}
+                    {t.practice && performing && (
                       <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10.5px] text-warn">
                         要練習
                       </span>
                     )}
                   </div>
                 </button>
+                {/*
+                  下見中（本番ボタンを押していないとき）だけ、その場で「要練習」を付け外しできる。
+                  下見 = 「ここは練習が要るな」と気づく時間なので、入力画面へ戻らせない。
+                  本番中は Notion へ書く入口を畳む約束なので出さない（`data-edit` でも二重に畳む）
+                */}
+                {!performing && (
+                  <div
+                    data-edit
+                    className="flex items-center gap-2 border-t border-border px-3 py-1 sm:px-4"
+                  >
+                    <PracticeToggle id={t.id} value={t.practice} className="ml-auto" />
+                  </div>
+                )}
               </li>
             );
           })}
