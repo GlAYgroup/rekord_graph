@@ -248,6 +248,38 @@ export function GraphExplorer({
     }
   }, [currentPositions, adopt]);
 
+  /**
+   * 名前だけを変える。空・同じ名前の別パターンは受け付けない
+   * （名前で選ぶ画面なので、同じ名前が2つあるとどちらを開くのか分からない）。
+   */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const renamePattern = useCallback(async (id: string, raw: string) => {
+    const name = raw.trim();
+    const current = patternsRef.current.find((p) => p.id === id);
+    if (!current || name === current.name) { setRenaming(null); return; }
+    if (!name) { setSaveError("名前が空です"); return; }
+    if (patternsRef.current.some((p) => p.id !== id && p.name === name)) {
+      setSaveError(`「${name}」は既にあります`);
+      return;
+    }
+    setBusy(true); setSaveError(null);
+    try {
+      const res = await fetch("/api/layouts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, name }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      adopt(data.patterns, id);
+      setRenaming(null);
+    } catch {
+      setSaveError("名前を変えられませんでした");
+    } finally {
+      setBusy(false);
+    }
+  }, [adopt]);
+
   const loadPattern = useCallback((id: string) => {
     const p = patternsRef.current.find((x) => x.id === id);
     if (!p) return;
@@ -1022,8 +1054,53 @@ export function GraphExplorer({
           >
             ＋保存
           </button>
-          {activeId && (
+          {activeId && renaming === activeId && (
+            // 名前の入力欄。Enter で決定、Esc / 欄の外で取り消し
+            <form
+              data-edit
+              className="flex basis-full gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const v = new FormData(e.currentTarget).get("name");
+                renamePattern(activeId, typeof v === "string" ? v : "");
+              }}
+            >
+              <input
+                name="name"
+                autoFocus
+                defaultValue={patterns.find((p) => p.id === activeId)?.name ?? ""}
+                maxLength={100}
+                onKeyDown={(e) => { if (e.key === "Escape") { setRenaming(null); setSaveError(null); } }}
+                onFocus={(e) => e.currentTarget.select()}
+                className="h-11 min-w-0 flex-1 rounded-full border border-accent/60 bg-surface px-4 text-[16px] text-fg outline-none"
+                aria-label="パターンの名前"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="tap shrink-0 rounded-full border border-accent/60 bg-accent/12 px-4 text-[12px] text-accent disabled:opacity-40"
+              >
+                決定
+              </button>
+              <button
+                type="button"
+                onClick={() => { setRenaming(null); setSaveError(null); }}
+                className="tap shrink-0 rounded-full border border-border bg-surface/90 px-3 text-[12px] text-fg-subtle hover:text-fg"
+              >
+                やめる
+              </button>
+            </form>
+          )}
+          {activeId && renaming !== activeId && (
             <div data-edit className="flex gap-1.5">
+              <button
+                onClick={() => { setSaveError(null); setRenaming(activeId); }}
+                disabled={busy}
+                className="tap rounded-full border border-border bg-surface/90 px-4 text-[12px] text-fg-muted backdrop-blur transition-colors hover:text-fg disabled:opacity-40"
+                title="開いているパターンの名前を変える（配置はそのまま）"
+              >
+                名前を変更
+              </button>
               <button
                 onClick={() => savePattern(activeId)}
                 disabled={busy}

@@ -88,6 +88,19 @@ export async function savePattern(
   return toPattern(page);
 }
 
+/**
+ * 名前だけを変える。**配置には触らない**（`savePattern` は全列を書くので、
+ * そちらで名前を変えると、画面に出ている途中の形で座標まで上書きしてしまう）。
+ */
+export async function renamePattern(id: string, name: string): Promise<Pattern> {
+  const page = await request<NotionPage>(`/pages/${id}`, {
+    method: "PATCH",
+    body: { properties: { 名前: { title: [{ type: "text", text: { content: name.slice(0, 100) } }] } } },
+    fresh: true,
+  });
+  return toPattern(page);
+}
+
 /** Notion の作法に合わせてアーカイブする（完全削除はしない。戻せる方が安全） */
 export async function deletePattern(id: string): Promise<void> {
   await request(`/pages/${id}`, { method: "PATCH", body: { archived: true }, fresh: true });
