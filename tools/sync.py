@@ -321,6 +321,11 @@ def rekey(plan: list[dict]) -> None:
     # 「1サビ終受け」→「1サビ終」のように名前を削った/足した場合。位置が同じなら前方一致で結ぶ
     try_match(lambda n, r: same_pos(n, r) and prefix_name(n, r), "位置が一致し、キュー名が前方一致")
     try_match(same_name, "キュー名が一致（位置は動いている）")
+    # 空白だけ違う名前（`1.1Bars` → `1.1 Bars`）。打ち直すついでに名前を整えた形
+    # （実例: トウキョウ・シャンディ・ランデヴ A、位置も 50ms → 1599ms に動いた）
+    def loose(s): return "".join(unicodedata.normalize("NFKC", s or "").split())
+    try_match(lambda n, r: bool(loose(n["name"])) and loose(n["name"]) == loose(r["name"]),
+              "キュー名が一致（空白の違いを無視。位置は動いている）")
 
     for d, a, why in matched:
         plan.remove(d)
