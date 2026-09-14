@@ -14,9 +14,6 @@ import type { GEdge, GNode, GPattern, PanelData, RouteMap } from "./types";
 /**
  * Obsidian 風のグラフ探索画面。全画面キャンバス + 力学レイアウト。
  *
- * MixTree から借りた道具:
- *  - Solo   … 1本のルートだけに畳んで、それ以外を消す
- *
  * ライブラリは使わない。ノード数十個の規模なら自前の方が
  * 見た目を完全に制御でき、DJ 中に開く画面の依存も増えない。
  */
@@ -33,6 +30,7 @@ type Transform = { x: number; y: number; k: number };
 const VIEW_STORAGE = "rg.graph.view.v1";
 
 type SavedView = {
+  /** "solo" は廃止済み（古い保存を読めるように型だけ残す。読んだら「ルート強調」として扱う） */
   routeMode?: "off" | "highlight" | "solo";
   showIsolated?: boolean;
   multiMode?: boolean;
@@ -99,13 +97,14 @@ export function GraphExplorer({
    * 最長ルートの見せ方。
    *  off       … 何も光らせない（既定。どのノードも矢印も同じ色）
    *  highlight … 全部出したまま、ルートだけ琥珀で光らせる
-   *  solo      … ルート以外を消す
+   * （「ルート以外を消す」Solo もあったが、使われないので外した）
    */
-  const [routeMode, setRouteMode] = useState<"off" | "highlight" | "solo">("off");
-  const solo = routeMode === "solo";
+  const [routeMode, setRouteMode] = useState<"off" | "highlight">("off");
   const glow = routeMode !== "off";
   const [showIsolated, setShowIsolated] = useState(false);
   const [q, setQ] = useState("");
+  /** スマホの左上の引き出し（ルート強調・まとめて移動・未接続・配置パターン）を開いているか */
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   /**
    * まとめて動かす対象。
@@ -119,6 +118,8 @@ export function GraphExplorer({
   // 保存先は Notion。端末に持たないので、PC で整えた形をスマホでそのまま開ける
   const [patterns, setPatterns] = useState(initialPatterns);
   const [activeId, setActiveId] = useState<string | null>(initialPatterns[0]?.id ?? null);
+  /** 引き出しの中で「既定から変えているもの」があるか。閉じていても取っ手に点を出す */
+  const toolsActive = routeMode !== "off" || showIsolated || multiMode || moveSet.size > 0;
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // 「曲が増減したとき何を敷き直すか」を effect から読むための控え。更新は操作時だけ
@@ -141,17 +142,16 @@ export function GraphExplorer({
     return s;
   }, [edges]);
 
-  /** 何を描くか。solo > 通常 の順で絞る */
-  const visibleNodes = useMemo(() => {
-    if (solo) return nodes.filter((n) => routeNodeSet.has(n.id));
-    return nodes.filter((n) => showIsolated || connectedIds.has(n.id));
-  }, [nodes, solo, routeNodeSet, showIsolated, connectedIds]);
+  /** 何を描くか */
+  const visibleNodes = useMemo(
+    () => nodes.filter((n) => showIsolated || connectedIds.has(n.id)),
+    [nodes, showIsolated, connectedIds],
+  );
 
   const visibleIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes]);
   const visibleEdges = useMemo(() => {
-    const base = edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
-    return solo ? base.filter((e) => routeEdgeSet.has(e.id)) : base;
-  }, [edges, visibleIds, solo, routeEdgeSet]);
+    return edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
+  }, [edges, visibleIds]);
 
   /* 検索: 一致ノードを光らせる */
   const matched = useMemo(() => {
@@ -359,7 +359,7 @@ export function GraphExplorer({
     try {
       const v: SavedView | null = JSON.parse(localStorage.getItem(VIEW_STORAGE) ?? "null");
       if (v) {
-        if (v.routeMode === "highlight" || v.routeMode === "solo") setRouteMode(v.routeMode);
+        if (v.routeMode === "highlight" || v.routeMode === "solo") setRouteMode("highlight");
         if (typeof v.showIsolated === "boolean") setShowIsolated(v.showIsolated);
         if (typeof v.multiMode === "boolean") setMultiMode(v.multiMode);
         // ?from= で開いたときは、そちらを優先する（リンクで来た意図が勝つ）
@@ -787,7 +787,7 @@ export function GraphExplorer({
             const r1 = radius(e.source) + 2, r2 = radius(e.target) + 5;
             // 選んだ曲からの道筋は赤。沈める処理より優先する（薄い道筋は追えない）
             const isChain = chainOn && routeEdgeSet.has(e.id);
-            // 琥珀で光らせるのはルート強調/Solo で全体の最長ルートを見るとき。普段はどの線も同じ太さ・同じ明るさ
+            // 琥珀で光らせるのはルート強調で全体の最長ルートを見るとき。普段はどの線も同じ太さ・同じ明るさ
             const isRoute = !chainOn && glow && routeEdgeSet.has(e.id);
             /**
              * 選んだ曲に直接つながっている線。選択への「返事」なのではっきり返す。
@@ -938,19 +938,39 @@ export function GraphExplorer({
         )}
       </svg>
 
-      {/* ── 左上: 検索と絞り込み ── */}
+      {/*
+        ── 左上: 検索と絞り込み ──
+        スマホでは「ネットワーク / ツリー / 検索」だけを常に出し、残り（ルート強調・
+        まとめて移動・未接続・配置パターン）は「表示・配置」で開く引き出しに入れる。
+        全部出しっぱなしだと、画面の上半分がボタンで埋まってグラフが見えない。
+        PC（md 以上）は場所に余裕があるので引き出しにせず常に出す
+      */}
       <div className="absolute left-3 top-3 flex w-[min(280px,calc(100%-24px))] flex-col gap-2">
         <div className="flex gap-1.5">
-          <span className="tap flex items-center rounded-full border border-accent/60 bg-accent/12 px-4 text-[12px] text-accent backdrop-blur">
+          <span className="tap flex shrink-0 items-center whitespace-nowrap rounded-full border border-accent/60 bg-accent/12 px-3.5 text-[12px] text-accent backdrop-blur">
             ネットワーク
           </span>
           <Link
             href={`/graph?mode=tree${selected ? `&root=${selected}` : ""}`}
-            className="tap flex items-center rounded-full border border-border bg-surface/90 px-4 text-[12px] text-fg-muted backdrop-blur hover:text-fg"
+            className="tap flex shrink-0 items-center whitespace-nowrap rounded-full border border-border bg-surface/90 px-3.5 text-[12px] text-fg-muted backdrop-blur hover:text-fg"
             title="起点から右へ分岐を展開するツリー表示"
           >
             ツリー
           </Link>
+          {/* 引き出しの取っ手（スマホだけ）。何か効いているときは点を付ける = 閉じていても気づける */}
+          <button
+            onClick={() => setToolsOpen((v) => !v)}
+            aria-expanded={toolsOpen}
+            className={`tap relative ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-3 text-[12px] backdrop-blur transition-colors md:hidden ${
+              toolsOpen ? "border-fg-subtle bg-elevated text-fg" : "border-border bg-surface/90 text-fg-muted"
+            }`}
+            title="ルート強調・まとめて移動・未接続・配置パターン"
+          >
+            表示・配置 <span aria-hidden className="text-[10px]">{toolsOpen ? "▲" : "▼"}</span>
+            {!toolsOpen && toolsActive && (
+              <span className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-hot" aria-label="設定が効いています" />
+            )}
+          </button>
         </div>
         <input
           value={q}
@@ -963,6 +983,7 @@ export function GraphExplorer({
           placeholder="グラフ内を検索"
           className="h-12 rounded-card border border-border bg-surface/90 px-3.5 text-[16px] outline-none backdrop-blur placeholder:text-fg-subtle focus:border-accent"
         />
+        <div className={`${toolsOpen ? "flex" : "hidden"} flex-col gap-2 md:flex`}>
         <div className="flex flex-wrap gap-1.5">
           <button
             onClick={() => setRouteMode((m) => (m === "highlight" ? "off" : "highlight"))}
@@ -974,15 +995,6 @@ export function GraphExplorer({
             title="全部出したまま、最長ルートだけ琥珀で光らせる"
           >
             ルート強調
-          </button>
-          <button
-            onClick={() => setRouteMode((m) => (m === "solo" ? "off" : "solo"))}
-            className={`tap rounded-full border px-4 text-[12px] backdrop-blur transition-colors ${
-              solo ? "border-hot/60 bg-hot/15 text-hot" : "border-border bg-surface/90 text-fg-muted hover:text-fg"
-            }`}
-            title="最長ルート以外を消す（MixTree の Solo）"
-          >
-            Solo
           </button>
           <button
             data-edit
@@ -1119,6 +1131,8 @@ export function GraphExplorer({
             </div>
           )}
         </div>
+        </div>
+        {/* 保存の結果は引き出しの外に出す（閉じていても失敗に気づけるように） */}
         {saveError ? (
           <p className="text-[12px] text-warn">{saveError}</p>
         ) : busy ? (
@@ -1297,7 +1311,7 @@ export function GraphExplorer({
           <>本番中 · 曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ドラッグは地図の移動だけ（形は書き換わりません）</>
         ) : (
           <>
-            曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ルート強調 = 全体の最長ルートを琥珀 · Solo = ルート以外を消す · ホバーで近傍 · クリックで詳細 ·
+            曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ルート強調 = 全体の最長ルートを琥珀 · ホバーで近傍 · クリックで詳細 ·
             ドラッグで移動 · ⌘/Shift+クリックで複数選択 · 背景を⌘/Shift+ドラッグで囲んで選択 · 選択枠の中はどこを掴んでも動く
           </>
         )}
