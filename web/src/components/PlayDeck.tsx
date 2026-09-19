@@ -21,10 +21,11 @@ import type { Cue, Track, Transition } from "@/lib/types";
  *    **省略せずに**出す。DJ 中に読めない情報は無いのと同じ
  *  - 右側に行き先の曲名チップ。押すとその曲が「今かけている曲」になって、また一覧が入れ替わる
  *
- * ★ 本番（パフォーマンスモード）中は「一度かけた曲」を使い切りにする。
- *   1セットの中で同じ曲は2回かけないので、使った曲へ入る繋ぎは一覧から消え、
- *   「この先最大◯曲」も**残っている曲だけで**数え直す（`maxOnwardFrom`）。
- *   本番でないときは下見なので何も消さない（使った曲には印だけ付ける）。
+ * ★ 「一度かけた曲」は使い切り。**本番でも下見でも同じ**（1つのプレイの中で同じ曲は
+ *   2回出さない）。使った曲へ入る繋ぎは一覧から消え、「この先最大◯曲」も
+ *   **残っている曲だけで**数え直す（`maxOnwardFrom`）。
+ *   「同じ曲」は**リミックス違いも含む**（`Track.songId`）。`フォニイ（6Tan bootleg）` を
+ *   かけたら、`フォニイ（KOHaq remix）` もそのセットでは出さない。
  *
  * ★ 本番では「記録に無い曲」へ急に繋ぐことがある。そのときのための入口が「曲を変える」で、
  *   これは**かけてきた順を捨てずに、選んだ曲を後ろに足す**（＝繋いだ曲として数える）。
@@ -49,7 +50,10 @@ export function PlayDeck({
   tracks: Track[];
   cues: Cue[];
   transitions: Transition[];
-  /** 全曲を使える前提の「この先最大◯曲」。本番中に使った曲を外した数は端末で数え直す */
+  /**
+   * 全曲を使える前提の「この先最大◯曲」。曲を選ぶ一覧の並びにだけ使う。
+   * 繋ぎのカードに出す数は、かけた曲を外して端末で数え直す
+   */
   maxFrom: Record<string, number>;
   initialTrackId: string | null;
 }) {
@@ -122,14 +126,22 @@ export function PlayDeck({
 
   const currentId = path[path.length - 1] ?? null;
   const current = currentId ? trackById.get(currentId) : undefined;
-  /** すでにかけた曲（今の曲を含む）。本番中はここへ入る繋ぎを使わない */
-  const used = useMemo(() => new Set(path), [path]);
+  /** 曲ID -> 同じ曲の仲間で共通の ID。リミックス違いは同じ値 */
+  const songOf = useMemo(
+    () => (id: string) => trackById.get(id)?.songId ?? id,
+    [trackById],
+  );
+  /**
+   * すでにかけた曲（今の曲を含む）を **songId で**持つ。ここへ入る繋ぎは使わない。
+   * 本番・下見どちらでも同じ（同じ曲がセットの中に2回出てこないように）
+   */
+  const usedSongs = useMemo(() => new Set(path.map(songOf)), [path, songOf]);
 
   const candidates = useMemo(
     () => (current ? outgoing.get(current.id) ?? [] : []),
     [current, outgoing],
   );
-  const open = performing ? candidates.filter((t) => !used.has(t.toTrackId)) : candidates;
+  const open = candidates.filter((t) => !usedSongs.has(songOf(t.toTrackId)));
   const hidden = candidates.length - open.length;
 
   /**
@@ -149,9 +161,7 @@ export function PlayDeck({
       return {
         transition: t,
         to,
-        onward: performing
-          ? maxOnwardFrom(outgoing, t.toTrackId, used)
-          : { count: maxFrom[t.toTrackId] ?? 1, truncated: false },
+        onward: maxOnwardFrom(outgoing, songOf, t.toTrackId, usedSongs),
         tempo: Math.abs(bpmDelta(current.bpm, to?.bpm ?? null) ?? 999),
       };
     });
@@ -164,13 +174,16 @@ export function PlayDeck({
     );
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, open.map((t) => t.id).join(","), performing, used, outgoing, maxFrom, trackById]);
+  }, [current, open.map((t) => t.id).join(","), usedSongs, outgoing, songOf, trackById]);
 
-  /** 今の曲から先、あと何曲つなげるか（今の曲を含む） */
+  /** 今の曲から先、あと何曲つなげるか（今の曲を含む）。今の曲の songId は起点なので外す */
   const remaining = current
-    ? performing
-      ? maxOnwardFrom(outgoing, current.id, new Set([...used].filter((id) => id !== current.id))).count
-      : maxFrom[current.id] ?? 1
+    ? maxOnwardFrom(
+        outgoing,
+        songOf,
+        current.id,
+        new Set([...usedSongs].filter((s) => s !== songOf(current.id))),
+      ).count
     : 0;
 
   // 曲が決まっていない（＝最初の1曲）と、途中で別の曲へ移るときは同じ一覧を出す。
@@ -180,7 +193,8 @@ export function PlayDeck({
       <StartPicker
         tracks={tracks}
         maxFrom={maxFrom}
-        used={used}
+        usedSongs={usedSongs}
+        playedIds={new Set(path)}
         mode={current ? "jump" : "start"}
         onPick={(id) => {
           setPicking(false);
@@ -254,12 +268,7 @@ export function PlayDeck({
           <span className={remaining > 1 ? "text-hot" : ""}>
             {remaining > 1 ? `この先 最大${remaining}曲` : "行き止まり"}
           </span>
-          {performing && hidden > 0 && <span>使用済みで隠した繋ぎ {hidden}</span>}
-          {!performing && (
-            <span className="text-fg-subtle">
-              下見中（本番にすると、かけた曲が一覧から消えます）
-            </span>
-          )}
+          {hidden > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hidden}</span>}
         </p>
       </header>
 
@@ -349,11 +358,7 @@ export function PlayDeck({
                           ? "border-hot/35 bg-hot/10 text-hot"
                           : "border-border text-fg-subtle"
                       }`}
-                      title={
-                        performing
-                          ? "まだかけていない曲だけで数えた「この先つなげる曲数」"
-                          : "全曲を使える前提で数えた「この先つなげる曲数」"
-                      }
+                      title="まだかけていない曲（リミックス違いも別の曲として数えない）だけで数えた「この先つなげる曲数」"
                     >
                       {/* 打ち切ったときの数は下限なので「以上」と断る（多い方に嘘をつかない） */}
                       {n.count > 1
@@ -447,12 +452,14 @@ export function PlayDeck({
  * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
  */
 function StartPicker({
-  tracks, maxFrom, used, mode, onPick, onCancel,
+  tracks, maxFrom, usedSongs, playedIds, mode, onPick, onCancel,
 }: {
   tracks: Track[];
   maxFrom: Record<string, number>;
-  /** すでにかけた曲。外しはしないが、印を付けて後ろに回す */
-  used: ReadonlySet<string>;
+  /** すでにかけた曲（songId。リミックス違いも含む）。外しはしないが、印を付けて後ろに回す */
+  usedSongs: ReadonlySet<string>;
+  /** かけた曲そのもの（曲ID）。印を「かけた」と「別版をかけた」で分けるためだけに使う */
+  playedIds: ReadonlySet<string>;
   mode: "start" | "jump";
   onPick: (id: string) => void;
   /** 途中で開いたときだけ「やめる」で戻れる（かけてきた順は消さない） */
@@ -469,11 +476,11 @@ function StartPicker({
       })
       .sort(
         (a, b) =>
-          Number(used.has(a.id)) - Number(used.has(b.id)) ||
+          Number(usedSongs.has(a.songId)) - Number(usedSongs.has(b.songId)) ||
           (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1) ||
           a.name.localeCompare(b.name, "ja"),
       );
-  }, [q, tracks, maxFrom, used]);
+  }, [q, tracks, maxFrom, usedSongs]);
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
@@ -522,9 +529,9 @@ function StartPicker({
             >
               <span className="min-w-0 flex-1 break-words text-[15px]">{t.name}</span>
               {/* 使い切りにする曲でも選べるようにはしておく（本番で戻すこともある）。印だけ付けて後ろへ */}
-              {used.has(t.id) && (
+              {usedSongs.has(t.songId) && (
                 <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10.5px] text-fg-subtle">
-                  かけた
+                  {playedIds.has(t.id) ? "かけた" : "別版をかけた"}
                 </span>
               )}
               <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">

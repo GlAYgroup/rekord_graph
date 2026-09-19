@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { DB, num, queryAll, relIds, selectName, text } from "./notion";
+import { songIdOf } from "./song";
 
 /**
  * Notion の3つの DB を、たどれるグラフに組み立てる。
@@ -118,6 +119,7 @@ async function build(): Promise<Graph> {
       musicalKey: text(p.properties["Key"]),
       rekordboxId: text(p.properties["rekordboxID"]),
       durationSec: num(p.properties["長さ秒"]),
+      songId: songIdOf({ id: p.id, fullTitle: title, alias }),
     };
   });
   disambiguate(tracks);

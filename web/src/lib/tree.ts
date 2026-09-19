@@ -164,6 +164,7 @@ export function buildTree(g: Graph, rootId: string): TreeData | null {
 
   let count = 0;
   let truncated = false;
+  const songOf = (id: string) => g.trackById.get(id)?.songId ?? id;
 
   const grow = (trackId: string, parentUid: string, path: string[], depth: number, edgeId?: string): BuildNode => {
     const uid = parentUid ? `${parentUid}|${edgeId}` : trackId;
@@ -172,8 +173,10 @@ export function buildTree(g: Graph, rootId: string): TreeData | null {
       routeKey: [...path, trackId].join(">"),
     };
     count++;
+    // 同じ曲は2回かけない。リミックス違いも同じ曲（songId で比べる）
+    const songsSoFar = new Set([...path, trackId].map(songOf));
     const expandable = (g.outgoing.get(trackId) ?? []).filter(
-      (t) => !path.includes(t.toTrackId) && t.toTrackId !== trackId, // 同じ曲は2回かけない
+      (t) => !songsSoFar.has(songOf(t.toTrackId)),
     );
     if (depth >= MAX_DEPTH || count > MAX_NODES) {
       if (expandable.length > 0) truncated = true; // 続きがあるのに黙って切るのは嘘になる

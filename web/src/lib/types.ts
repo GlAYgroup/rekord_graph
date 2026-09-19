@@ -18,6 +18,11 @@ export type Track = {
   rekordboxId: string;
   /** 曲の長さ（秒）。タイムライン表示の比率に使う */
   durationSec: number | null;
+  /**
+   * 同じ曲の仲間で共通の ID（リミックス違いは同じ値になる）。`lib/song.ts` が決める。
+   * 1つのプレイで同じ曲を2回かけない判定は、曲 ID ではなく**これ**で行う
+   */
+  songId: string;
 };
 
 export type Cue = {
