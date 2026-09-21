@@ -159,3 +159,17 @@ export async function updateTransitionPractice(id: string, practice: boolean): P
   });
   revalidateTag(NOTION_TAG, { expire: 0 });
 }
+
+/**
+ * 難易度だけを付け替える。星・要練習と同じ1タップ経路（`properties()` は通さない）。
+ * 「難易度」列がまだ無いワークスペースでは `ensureColumns()` が先に生やす。
+ */
+export async function updateTransitionDifficulty(id: string, difficulty: string | null): Promise<void> {
+  await ensureColumns();
+  await request(`/pages/${id}`, {
+    method: "PATCH",
+    body: { properties: { 難易度: selectProp(difficulty) } },
+    fresh: true,
+  });
+  revalidateTag(NOTION_TAG, { expire: 0 });
+}

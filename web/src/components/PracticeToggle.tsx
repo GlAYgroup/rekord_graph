@@ -13,7 +13,7 @@ import { useState } from "react";
  * **リンクやカードの中に置く前提**なので、クリックは必ず止める（親のページ遷移を殺す）。
  */
 export function PracticeToggle({
-  id, value, className = "", refresh = true,
+  id, value, className = "", refresh = true, onSaved,
 }: {
   /** 🔀Transitions のページID */
   id: string;
@@ -24,6 +24,8 @@ export function PracticeToggle({
    * 新しい props が届いて配置を敷き直し、拡大・移動していた所から全体表示へ戻ってしまう
    */
   refresh?: boolean;
+  /** 保存できた値を親へ返す（入力画面の一括編集が手元の一覧を書き換えるため） */
+  onSaved?: (practice: boolean) => void;
 }) {
   const router = useRouter();
   /** 押した結果。null = まだ押していない（= サーバの値をそのまま出す） */
@@ -47,6 +49,7 @@ export function PracticeToggle({
         body: JSON.stringify({ id, practice: !before }),
       });
       if (!res.ok) throw new Error();
+      onSaved?.(!before);
       // API の revalidateTag が捨てるのはサーバのキャッシュだけ。端末のルーターキャッシュ
       // （先読みした /practice・戻る/進む）は最大5分古いまま残り、/play のカードは props の
       // practice を読むので、描き直すとマークが消えていた。取り直した値は上の seenValue が拾う

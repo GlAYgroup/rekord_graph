@@ -14,7 +14,7 @@ import { RATINGS, ratingOf, starCount } from "@/lib/ratings";
  * **リンクやカードの中に置く前提**なので、クリックは必ず止める（親のページ遷移を殺す）。
  */
 export function RatingPicker({
-  id, value, size = "md", className = "", refresh = true,
+  id, value, size = "md", className = "", refresh = true, onSaved,
 }: {
   /** 🔀Transitions のページID */
   id: string;
@@ -23,6 +23,8 @@ export function RatingPicker({
   className?: string;
   /** 保存できたら画面を取り直すか。グラフのパネルでは false（PracticeToggle と同じ理由） */
   refresh?: boolean;
+  /** 保存できた値を親へ返す（入力画面の一括編集が手元の一覧を書き換えるため） */
+  onSaved?: (rating: string | null) => void;
 }) {
   const router = useRouter();
   /** 押した結果。null = まだ押していない（= サーバの値をそのまま出す） */
@@ -46,6 +48,7 @@ export function RatingPicker({
         body: JSON.stringify({ id, rating: ratingOf(next) }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "保存に失敗しました");
+      onSaved?.(ratingOf(next));
       // revalidateTag が捨てるのはサーバのキャッシュだけで、端末のルーターキャッシュ（他の画面・
       // 戻る/進む）には最大5分前の星が残る。取り直した値は上の seenValue が拾う（PracticeToggle と同じ）
       if (refresh) router.refresh();

@@ -8,6 +8,9 @@ import type { Cue } from "@/lib/types";
 import { barsLabel, cueLabel, formatPosition } from "@/lib/format";
 import { DIFFICULTIES, DIFFICULTY_LABEL } from "@/lib/difficulty";
 import { RATINGS } from "@/lib/ratings";
+import { DifficultyPicker } from "./DifficultyPicker";
+import { PracticeToggle } from "./PracticeToggle";
+import { RatingPicker } from "./RatingPicker";
 
 /**
  * 繋ぎの入力画面。
@@ -119,6 +122,11 @@ export function TransitionForm({
    */
   const [formSeq, setFormSeq] = useState(0);
   const [listQ, setListQ] = useState("");
+  /**
+   * 一括編集。登録済みの各行に星・難易度・要練習のボタンを出し、押した瞬間に1項目だけ保存する
+   * （行ごとにフォームへ読み込んで保存し直すと、1件に4タップ＋スクロールかかる）
+   */
+  const [bulk, setBulk] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -311,6 +319,19 @@ export function TransitionForm({
       </main>
     );
   }
+
+  /**
+   * 一括編集で1項目保存できた行を、手元の一覧にも書く。1タップごとに `router.refresh()` で
+   * 全件取り直すと Notion を毎回読み直して重いので、取り直すのは一括編集を閉じたときだけ。
+   * フォームで編集中の行なら、フォームの値も合わせる（古い値のまま「更新」で上書きさせない）
+   */
+  const patchRow = (id: string, patch: Partial<Pick<ListedTransition, "rating" | "difficulty" | "practice">>) => {
+    setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    if (id !== editingId) return;
+    if ("rating" in patch) setRating(patch.rating ?? null);
+    if ("difficulty" in patch) setDifficulty(patch.difficulty ?? null);
+    if ("practice" in patch) setPractice(patch.practice ?? false);
+  };
 
   const shownRows = rows.filter((r) => {
     const q = listQ.trim().toLowerCase();
@@ -584,20 +605,41 @@ export function TransitionForm({
 
       {/* ── 登録済みの繋ぎ。間違って入れたものはここから消す ── */}
       <section className="mt-8">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="label">登録済みの繋ぎ · {rows.length}</h2>
+          <button
+            type="button"
+            onClick={() => {
+              // 閉じるときに一度だけ取り直す（グラフ・曲ページ・/play へ変更を届ける）
+              if (bulk) router.refresh();
+              setBulk((v) => !v);
+            }}
+            aria-pressed={bulk}
+            className={`tap shrink-0 rounded-full border px-3 text-[12px] transition-colors ${
+              bulk
+                ? "border-accent/60 bg-accent/12 text-accent"
+                : "border-border text-fg-muted hover:border-border-bright hover:text-fg"
+            }`}
+          >
+            {bulk ? "一括編集を終える" : "一括編集"}
+          </button>
           <input
             value={listQ}
             onChange={(e) => setListQ(e.target.value)}
             placeholder="曲名で絞る"
-            className="ml-auto h-10 w-[46%] rounded-card border border-border bg-surface-2 px-3 text-[14px] outline-none placeholder:text-fg-subtle focus:border-accent"
+            className="h-10 w-full sm:ml-auto sm:w-[40%] rounded-card border border-border bg-surface-2 px-3 text-[14px] outline-none placeholder:text-fg-subtle focus:border-accent"
           />
         </div>
+        {bulk && (
+          <p className="mt-2 text-[12px] text-fg-subtle">
+            押した瞬間にその項目だけ保存します。同じものをもう一度押すと外します。
+          </p>
+        )}
         <ul className="mt-2 space-y-1.5">
           {shownRows.map((r) => (
             <li
               key={r.id}
-              className="flex items-start gap-2 rounded-card border border-border bg-surface px-3 py-2.5"
+              className="flex flex-wrap items-start gap-2 rounded-card border border-border bg-surface px-3 py-2.5"
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-[14px] break-words">
@@ -609,6 +651,29 @@ export function TransitionForm({
                 </span>
                 {r.comment && <span className="block text-[12px] text-fg-muted break-words">{r.comment}</span>}
               </span>
+              {bulk && (
+                <div className="order-last flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-2">
+                  <RatingPicker
+                    id={r.id}
+                    value={r.rating}
+                    size="sm"
+                    refresh={false}
+                    onSaved={(rating) => patchRow(r.id, { rating })}
+                  />
+                  <DifficultyPicker
+                    id={r.id}
+                    value={r.difficulty}
+                    refresh={false}
+                    onSaved={(difficulty) => patchRow(r.id, { difficulty })}
+                  />
+                  <PracticeToggle
+                    id={r.id}
+                    value={r.practice}
+                    refresh={false}
+                    onSaved={(practice) => patchRow(r.id, { practice })}
+                  />
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => startEdit(r)}
