@@ -118,10 +118,17 @@ def load_rekordbox() -> dict[str, dict]:
     names = build_short_names(tracks)
     _RB_TRACKS.clear()
     out = {}
+    unknown = []
     for t in tracks:
         _RB_TRACKS[t["id"]] = {**t, "shortName": names[t["id"]]}
         for c in t["cues"]:
             if c["kind"] != "hot":
+                continue
+            if not c["letter"]:
+                # 記号を判定できないホットキュー（rekordbox の Kind=4。rb_export の cue_letter）。
+                # 記号なしで足すと Notion が select を弾いて同期が途中で止まるうえ、
+                # どのパッドか分からないキューを繋ぎの候補に出すことになる。足さずに毎回知らせる
+                unknown.append(f"{names[t['id']]} {ms_to_str(c['positionMs'])}「{c['name'] or '名前なし'}」")
                 continue
             out[c["uuid"]] = {
                 "trackId": t["id"],
@@ -135,6 +142,8 @@ def load_rekordbox() -> dict[str, dict]:
                 "loopEndMs": c.get("loopEndMs"),
                 "priority": t["priority"],
             }
+    for u in unknown:
+        print(f"  ⚠ 記号を判定できないホットキューは同期しません（rekordbox でパッドを確かめる）: {u}")
     return out
 
 
@@ -201,6 +210,16 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
 
     rekey(plan)
 
+    # 作り直しで結び直せなかった削除のうち、🔀Transitions から参照されている行は消さない。
+    # 消すと繋ぎのリンクが切れ、アプリからその繋ぎごと見えなくなる（4点そろわない行は載せない）。
+    # 人が繋ぎのキューを選び直すまで「削除(保留)」として毎回見せる（曲行の track_hold と同じ扱い）
+    if any(p["kind"] == "delete" for p in plan):
+        cue_refs = {r.replace("-", "") for r in _transition_cue_refs()}
+        for p in plan:
+            if p["kind"] == "delete" and p["notion"]["pageId"].replace("-", "") in cue_refs:
+                p["kind"] = "hold"
+                p["summary"] += "（🔀Transitions から参照あり）"
+
     # 新しい曲のキューを足すには、先に 🎵Tracks の行が要る。曲ごとに1件の「曲追加」を前に置く
     pages = _track_pages()
     seen_tracks: set[str] = set()
@@ -248,7 +267,7 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
                 plan.append({"kind": "track_delete", "pageId": page_id, "uuid": rbid,
                              "summary": f"rekordbox から消えた曲: {title}"})
 
-    order = {"rekey": 0, "update": 1, "delete": 2, "track_delete": 3, "track_hold": 4,
+    order = {"rekey": 0, "update": 1, "delete": 2, "hold": 2, "track_delete": 3, "track_hold": 4,
              "track_add": 5, "add": 6, "track_update": 7, "notice": 8}
     plan.sort(key=lambda x: (order[x["kind"]], x["summary"]))
     return plan
@@ -345,7 +364,7 @@ def rekey(plan: list[dict]) -> None:
         })
 
 
-LABEL = {"rekey": "作り直し", "update": "変更", "delete": "削除", "track_delete": "曲削除",
+LABEL = {"rekey": "作り直し", "update": "変更", "delete": "削除", "hold": "削除(保留)", "track_delete": "曲削除",
          "track_hold": "曲削除(保留)", "track_add": "曲追加", "add": "追加",
          "track_update": "曲更新", "notice": "位置のみ"}
 
@@ -360,6 +379,9 @@ def show(item: dict, i: int, total: int) -> None:
         print(f"        {field}:  {before}  →  {after}{mark}")
     if item["kind"] == "delete":
         print("        ※ このキューを参照しているトランジションがあれば、そちらも要確認になります")
+    if item["kind"] == "hold":
+        print("        ※ 自動では消しません。繋ぎのキューを選び直す（またはこの行に結び直す）までは、"
+              "次回の sync でもここに出ます")
     if item["kind"] == "track_delete":
         print("        ※ 🎵Tracks の行をアーカイブします（キュー0件・🔀Transitions 参照0件を確認済み）")
     if item["kind"] == "track_hold":
@@ -543,7 +565,8 @@ def main() -> int:
     print(f"  {len(nt)} 件")
 
     plan = build_plan(rb, nt)
-    actionable = [p for p in plan if p["kind"] != "notice"]
+    # 通知（位置のみ）と保留は見せるだけで書かない（--yes でも ✓ を付けない）
+    actionable = [p for p in plan if p["kind"] not in ("notice", "hold", "track_hold")]
 
     if not plan:
         print("\n差分はありません。Notion と rekordbox は一致しています。")
@@ -559,7 +582,7 @@ def main() -> int:
         print("\n--dry-run のため何も書き込みませんでした。")
         return 0
     if not actionable:
-        print("\n書き込みが必要な変更はありません（位置の移動のみ）。")
+        print("\n書き込みが必要な変更はありません（位置の移動・保留のみ）。")
         return 0
 
     print("\n" + "=" * 60)

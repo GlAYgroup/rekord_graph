@@ -64,7 +64,10 @@ def cue_letter(kind: int | None) -> str | None:
         return HOTCUE_LETTERS[kind - 1]
     if 5 <= kind <= len(HOTCUE_LETTERS) + 1:
         return HOTCUE_LETTERS[kind - 2]
-    return None  # Kind=4 は実データに無い。もし現れたら黙って割り当てず、ここで考え直す
+    # Kind=4 は黙って割り当てない。2026-09-22 に初めて1件現れた（え?あぁ、そう。0:55.785 の
+    # 名前なし5秒ループ）が、本人にもどのパッドか分からなかった。記号は None のまま返し、
+    # sync はそのキューを同期せず警告だけ出す（`load_rekordbox`）
+    return None
 
 
 # プレイリスト所属は「どの曲を優先して扱うか」の判断材料。
