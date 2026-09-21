@@ -21,7 +21,7 @@
 
     cp -p ~/Library/Pioneer/rekordbox/master.db* ~/rekordbox_backup_$(date +%Y%m%d_%H%M%S)/
 """
-import sys, argparse, tempfile, pathlib
+import sys, argparse, tempfile, pathlib, unicodedata
 sys.path.insert(0, 'tools')
 import rb_export
 from pyrekordbox import Rekordbox6Database
@@ -29,30 +29,18 @@ from pyrekordbox import Rekordbox6Database
 # 現タイトル -> {title, artist, genre}。指定した項目だけ変える（None は触らない）
 # genre="" はジャンルを外す
 CHANGES = {
-    # ── 2026-09-09 第2回: 曲名が特定できた3曲（本人に確認済み）──
-    # 原口沙輔「イガク」。原曲がカタカナなので Igaku ではなくイガク
-    "Igaku(CottonPot Bootleg)": {"title": "イガク（CottonPot bootleg）", "artist": "原口沙輔"},
-    # Anamanaguchi「Miku」。原曲が英語。リミックスではなく原曲そのものなので括弧なし
-    "miku song": {"title": "Miku", "artist": "Anamanaguchi"},
-    # 原曲は「みむかｩわナイストライ」（Mimukauwa Nice Try はローマ字表記）。アーティストは未確認
-    "みむかｩわナイストライ (Hexacube's HARDCORE-style Bootleg)":
-        {"title": "みむかｩわナイストライ（Hexacube's bootleg）"},
-
-    # ── 2026-09-11 第3回: 取り込んだ6曲のうち、表示名が壊れていた分 ──
-    # タイトルが「アーティスト - 曲名」の形だったため、表示名を作る base_name() が
-    # 最初の括弧で切って 'iroha' = アーティスト名だけになっていた（曲名が丸ごと消える）
-    "iroha(sasaki) - 炉心融解 (feat. 鏡音リン) [HXLLCXTZ & Nyacktas Remix] [Supported by TeddyLoid]":
-        {"title": "炉心融解（HXLLCXTZ & Nyacktas remix）", "artist": "iroha(sasaki)"},
-    # 【】は base_name() が切る括弧に入っていないので、レーベル番号ごと表示名に残っていた。
-    # アーティストはリミキサー(RAVERS SQUAD)が入っていたので原曲のじんに直す
-    "【RSB-005】じん - カゲロウデイズ(RAVERS SQUAD Bootleg)":
-        {"title": "カゲロウデイズ（RAVERS SQUAD bootleg）", "artist": "じん"},
-    # MELTDOWN は炉心融解の英題。原曲表記に合わせる（本人確認済み 2026-09-11）。
-    # 上の炉心融解と同名になるが、短縮名の衝突時はリミックス名が自動で付いて区別される
-    "✨ MELTDOWN ✨": {"title": "炉心融解（DJ ADSL remix）", "artist": "iroha(sasaki)"},
-    # artist が空だった。原曲は BUMP OF CHICKEN「ray」(feat. 初音ミク)
-    "ray (超かぐや姫！ Version) warapi Bootleg Remix v4":
-        {"title": "ray（warapi bootleg）", "artist": "BUMP OF CHICKEN"},
+    # ── 2026-09-22 第4回: ジャンルの表記ゆれ（本人に確認済み）──
+    # /play の除外条件でジャンルを選ぶので、同じジャンルが別々に並ばないように揃える。
+    # VOCALOID はヤマハの正式表記に寄せる（vocaloid 2曲 / Vocaloid 1曲 → VOCALOID）
+    "いーあるふぁんくらぶ（Giga-P remix）": {"genre": "VOCALOID"},
+    "裏表ラバーズ（電蝕システムリミックス）": {"genre": "VOCALOID"},
+    "こちら、幸福安心委員会です。 (Imperative Mix)": {"genre": "VOCALOID"},
+    # Hardcore / UK Hardcore とは別のサブジャンルとして残し、大文字小文字だけ他と揃える
+    "カゲロウデイズ（RAVERS SQUAD bootleg）": {"genre": "Hardcore Rave"},
+    # ジャンルではない値を外す（ㅁㄴㄹ はキーボードの打ち間違い、Remix は種別）。
+    # 音の種類の根拠が無いので、推測で埋めずに空にする
+    "ゴーストルール（DIVELA remix）": {"genre": ""},
+    "ワールズエンド・ダンスホール（TEKINA remix）": {"genre": ""},
 }
 
 
@@ -61,12 +49,15 @@ def run(db_path: pathlib.Path, apply: bool) -> int:
     # （実測 2026-09-09: コピーを渡したつもりの commit が実機に書き込まれた）。
     # `rb_export` も `path=` を使っている。ここを間違えると、試すつもりの実行が本番になる。
     db = Rekordbox6Database(path=str(db_path), unlock=True)
+    # 実機の曲名は NFD（バ = ハ＋濁点）で入っていることがある。見た目が同じでも
+    # 文字列が一致しないので、NFC に揃えてから引く（実測 2026-09-22: 裏表ラバーズ）
+    nfc = lambda t: unicodedata.normalize("NFC", t)
     by_title = {}
     for c in db.get_content():
-        by_title.setdefault(c.Title or "", []).append(c)
+        by_title.setdefault(nfc(c.Title or ""), []).append(c)
 
-    missing = [t for t in CHANGES if t not in by_title]
-    dup = [t for t in CHANGES if len(by_title.get(t, [])) > 1]
+    missing = [t for t in CHANGES if nfc(t) not in by_title]
+    dup = [t for t in CHANGES if len(by_title.get(nfc(t), [])) > 1]
     if missing:
         print("⚠ 見つからない曲（実機で既に直された？）:")
         for t in missing: print(f"    {t}")
@@ -76,7 +67,7 @@ def run(db_path: pathlib.Path, apply: bool) -> int:
 
     n = 0
     for title, want in CHANGES.items():
-        rows = by_title.get(title, [])
+        rows = by_title.get(nfc(title), [])
         if len(rows) != 1:
             continue
         c = rows[0]
