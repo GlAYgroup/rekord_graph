@@ -77,7 +77,10 @@ export default async function NewTransitionPage({
   return (
     <TransitionForm
       // 曲ページ / グラフから続けて開くと同じ要素が使い回され、
-      // 初期値（useState の第一引数）が読み直されない。key で作り直す
+      // 初期値（useState の第一引数）が読み直されない。key で作り直す。
+      // **この3つを history.replaceState で書き換えないこと** — サーバが描いたときと違う URL の
+      // まま router.refresh() が走ると key が変わり、入力中のフォームが作り直されて消える
+      // （URL を変えるときは router.replace。TransitionForm の startNew を参照）
       key={`${initialFromId ?? ""}|${initialToId ?? ""}|${initialEditId ?? ""}`}
       tracks={tracks}
       existing={existing}

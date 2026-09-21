@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { CuePad, LoopTag } from "@/components/CuePad";
 import { usePerformance } from "@/components/PerformanceMode";
 import type { Cue } from "@/lib/types";
@@ -119,9 +119,24 @@ export function TransitionForm({
   const [removing, setRemoving] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{ url?: string; label: string; edited: boolean } | null>(null);
+  /**
+   * 最後に保存できたときのフォームの中身（`formKey`）。今の中身と同じ間だけ
+   * 「入力が完了しました」を出す。どこか1つでも触れば消え、「この繋ぎを更新」が押せるようになる。
+   */
+  const [savedKey, setSavedKey] = useState<string | null>(null);
+  /**
+   * フォームを別の行・新しい入力へ切り替えた回数。保存の返事が届く前に切り替えられたら、
+   * 届いた返事で編集対象を差し替えない（別の行の中身のまま、新しい行を更新させない）。
+   */
+  const epochRef = useRef(0);
 
   const ready = !!(fromTrack && fromCue && toTrack && toCue);
+  /** フォームの中身を1本にしたもの。保存した時点と比べて「触ったか」を見る */
+  const formKey = JSON.stringify([
+    fromTrack?.id ?? null, fromCue?.id ?? null, toTrack?.id ?? null, toCue?.id ?? null,
+    technique, rating, bars, barsAfter, practice, chain, comment,
+  ]);
+  const saved = savedKey === formKey;
   /** 小節数の読み下し（`次の曲 C「歌入り」の16小節前`）。組み立ては format.ts の barsLabel だけ */
   const barsSentence = toCue
     ? barsLabel(
@@ -142,7 +157,6 @@ export function TransitionForm({
   const pick = (side: Side, track: FormTrack) => {
     if (side === "from") { setFromTrack(track); setFromCue(null); }
     else { setToTrack(track); setToCue(null); }
-    setDone(null);
   };
 
   /** フォームを空に戻す。枠ごと作り直して、中の検索文字も残さない */
@@ -154,19 +168,35 @@ export function TransitionForm({
   };
 
   /**
-   * `?edit=` を URL から外す。編集を終えたのにアドレスに残っていると、
-   * 再読み込みでまた編集モードで開いてしまう。
+   * 次の1件を入れ始める（「新しい繋ぎを入力する」「To の曲から続けて入力する」「編集をやめる」）。
+   * フォームを空に戻し、`from` を渡されたらその曲を From に入れる。
+   *
+   * URL も `/new`（続けて入力なら `/new?from=`）に揃えるが、**`router.replace` で移る。
+   * `history.replaceState` で書き換えてはいけない** — page.tsx は `from` / `to` / `edit` から
+   * このフォームの key を作っている。サーバが描いたときと違う URL のまま、保存のたびに呼ぶ
+   * `router.refresh()` が走ると key が変わってフォームが作り直され、入れたばかりの内容と
+   * 「入力が完了しました」が消える（「編集をやめる」→ 新しく入力 → 保存、で実際に起きた）。
    */
-  const dropEditParam = () => {
-    if (typeof window === "undefined" || !window.location.search.includes("edit=")) return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("edit");
-    window.history.replaceState(null, "", url.pathname + (url.search || "") + url.hash);
+  const startNew = (from: FormTrack | null = null, { scroll = true } = {}) => {
+    epochRef.current += 1;
+    setEditingId(null);
+    clearForm();
+    setFromTrack(from);
+    setSavedKey(null); setError(null);
+    const target = from ? `/new?from=${encodeURIComponent(from.id)}` : "/new";
+    if (window.location.pathname + window.location.search !== target) {
+      router.replace(target, { scroll: false });
+    }
+    // 下で保存ボタンを押した指のまま空のフォームを見せると、また「全部消えた」に見える
+    if (scroll) window.scrollTo({ top: 0 });
   };
 
   const save = async () => {
     if (!ready) return;
-    setBusy(true); setError(null); setDone(null);
+    // 返事が届くまでにフォームを別の行・新しい入力へ切り替えられたら、そちらを優先する
+    const epoch = epochRef.current;
+    const key = formKey;
+    setBusy(true); setError(null);
     try {
       const payload = {
         fromTrackId: fromTrack.id, fromCueId: fromCue.id,
@@ -181,8 +211,9 @@ export function TransitionForm({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "保存に失敗しました");
 
+      const id: string = editingId ?? data.id;
       const row: ListedTransition = {
-        id: editingId ?? data.id,
+        id,
         from: fromTrack.name, to: toTrack.name,
         fromBpm: fromTrack.bpm, toBpm: toTrack.bpm,
         fromCue: cueLabel(fromCue),
@@ -196,23 +227,21 @@ export function TransitionForm({
         practice, chain,
       };
 
-      if (editingId) {
-        setDone({ url: data.url, label: `${fromTrack.name} → ${toTrack.name}`, edited: true });
-        setRows((cur) => cur.map((r) => (r.id === editingId ? row : r)));
-        setEditingId(null);
-        dropEditParam();
-        clearForm();
-      } else {
-        setDone({ url: data.url, label: `${fromTrack.name} → ${toTrack.name}`, edited: false });
-        setRows((cur) => [row, ...cur]);
-        // 次の1件へ。To を次の From に送ると、繋ぎを鎖で入れていける。
-        // 枠は作り直す（前の検索文字を残さない）ので、曲は作り直したあとに入れ直す
-        const next = toTrack;
-        clearForm();
-        setFromTrack(next);
+      setRows((cur) => (editingId ? cur.map((r) => (r.id === id ? row : r)) : [row, ...cur]));
+      if (epochRef.current === epoch) {
+        /*
+          入れた内容は消さない。この行の編集に切り替えて「入力が完了しました」とだけ返す
+          （次に押すと同じ行を書き換える = 同じ繋ぎが2行にならない）。
+          以前は保存と同時にフォームを空にして To を From へ送っていたが、押した指の先で
+          中身が入れ替わり、返事は画面の上端（見えない所）に出るので、壊れたように見えた。
+          次の1件は、完了の下に出る「新しい繋ぎを入力する」から始める
+        */
+        setEditingId(id);
+        setSavedKey(key);
       }
       // Notion に書けた分をサーバから取り直す。重複の注意書き・登録済み一覧・
-      // 他のページ（曲・グラフ）が、画面に出ている内容とズレたままになるのを防ぐ
+      // 他のページ（曲・グラフ）が、画面に出ている内容とズレたままになるのを防ぐ。
+      // URL は触らないので key は変わらず、フォームはこのまま残る（startNew の注意書き）
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存に失敗しました");
@@ -223,6 +252,7 @@ export function TransitionForm({
 
   /** 一覧の行をフォームに戻す。キューの付け替えも同じ選択肢からできる */
   const startEdit = (row: ListedTransition) => {
+    epochRef.current += 1;
     const ft = tracks.find((t) => t.id === row.fromTrackId) ?? null;
     const tt = tracks.find((t) => t.id === row.toTrackId) ?? null;
     setFromTrack(ft); setFromCue(ft?.cues.find((c) => c.id === row.fromCueId) ?? null);
@@ -234,15 +264,8 @@ export function TransitionForm({
     setChain(row.chain); setComment(row.comment);
     setEditingId(row.id);
     setFormSeq((n) => n + 1); // 枠を作り直して、前の検索文字を残さない
-    setDone(null); setError(null);
+    setSavedKey(null); setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    dropEditParam();
-    clearForm();
-    setDone(null); setError(null);
   };
 
   const remove = async (row: ListedTransition) => {
@@ -252,8 +275,9 @@ export function TransitionForm({
       const res = await fetch(`/api/transitions?id=${encodeURIComponent(row.id)}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json())?.error ?? "削除に失敗しました");
       setRows((cur) => cur.filter((r) => r.id !== row.id));
-      // 消した行を編集中だったら、フォームも畳む（存在しない行を保存させない）
-      if (editingId === row.id) { setEditingId(null); dropEditParam(); clearForm(); }
+      // 消した行を編集中だったら、フォームも畳む（存在しない行を保存させない）。
+      // 一覧の途中で消した人を上へ飛ばさない
+      if (editingId === row.id) startNew(null, { scroll: false });
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "削除に失敗しました");
@@ -269,7 +293,7 @@ export function TransitionForm({
   */
   if (performing) {
     return (
-      <main className="mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
+      <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
         <h1 className="text-[22px] font-bold leading-tight">パフォーマンスモード中です</h1>
         <p className="mt-2 text-[13.5px] text-fg-muted">
           本番中に記録が書き換わらないよう、入力・編集は畳んでいます。
@@ -291,7 +315,7 @@ export function TransitionForm({
   });
 
   return (
-    <main className="mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
+    <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
       <div className="flex items-start gap-2">
         <h1 className="min-w-0 flex-1 text-[22px] font-bold leading-tight">
           {editingId ? "繋ぎを編集" : "繋ぎを追加"}
@@ -299,8 +323,10 @@ export function TransitionForm({
         {editingId && (
           <button
             type="button"
-            onClick={cancelEdit}
-            className="tap shrink-0 rounded-full border border-border px-4 text-[12px] text-fg-subtle hover:text-fg"
+            onClick={() => startNew()}
+            // 保存の返事を待っている間に切り替えると、どの行を編集しているのかが宙に浮く
+            disabled={busy}
+            className="tap shrink-0 rounded-full border border-border px-4 text-[12px] text-fg-subtle hover:text-fg disabled:opacity-40"
           >
             編集をやめる
           </button>
@@ -312,23 +338,6 @@ export function TransitionForm({
           : "曲を選ぶと、その曲のホットキューだけが並びます。書き込み先は 🔀Transitions です。"}
       </p>
 
-      {done && (
-        <div className="mt-4 rounded-card border border-ok/50 bg-ok/10 px-4 py-3 text-[13.5px]">
-          <span className="text-ok">保存しました</span> · {done.label}
-          {done.url && (
-            <a href={done.url} target="_blank" rel="noreferrer" className="ml-2 underline text-fg-muted hover:text-fg">
-              Notion で開く
-            </a>
-          )}
-          {/* 更新したのに「次の繋ぎへ」と出ると、画面に何が残っているのかが読めなくなる */}
-          <span className="ml-2 text-fg-subtle">
-            {done.edited
-              ? "この行を書き換えました。フォームは空に戻しています"
-              : "続けて次の繋ぎを入力できます（From は今の To にしました）"}
-          </span>
-        </div>
-      )}
-
       <Side
         key={`from-${formSeq}`}
         label="FROM · どの曲のどこから抜けるか"
@@ -336,7 +345,7 @@ export function TransitionForm({
         track={fromTrack}
         cue={fromCue}
         onTrack={(t) => pick("from", t)}
-        onCue={(c) => { setFromCue(c); setDone(null); }}
+        onCue={setFromCue}
         onClear={() => { setFromTrack(null); setFromCue(null); }}
       />
 
@@ -349,7 +358,7 @@ export function TransitionForm({
         track={toTrack}
         cue={toCue}
         onTrack={(t) => pick("to", t)}
-        onCue={(c) => { setToCue(c); setDone(null); }}
+        onCue={setToCue}
         onClear={() => { setToTrack(null); setToCue(null); }}
       />
 
@@ -514,12 +523,44 @@ export function TransitionForm({
         <button
           type="button"
           onClick={save}
-          disabled={!ready || busy}
+          // 保存した直後で何も触っていない間は押せない（同じ中身を書き直すだけになる）
+          disabled={!ready || busy || saved}
           className="tap h-12 rounded-card border border-hot/60 bg-hot/15 px-8 text-[15px] font-semibold text-hot transition-colors disabled:opacity-35"
         >
           {busy ? "保存中…" : !ready ? "From と To を選んでください" : editingId ? "この繋ぎを更新" : "この繋ぎを保存"}
         </button>
       </div>
+
+      {/*
+        保存できたら、押したボタンのすぐ下で返事をする（上の見出しの下に出しても、
+        下で押した指からは見えない）。ボタンより下に出すのは、押した物を動かさないため。
+        入れた内容はそのまま残り、どこかを触れば消えて「更新」に戻る。
+        次の1件はここから: 空から入れるか、今の To を From に入れて続けるか
+      */}
+      {saved && (
+        <div role="status" className="mt-3 rounded-card border border-ok/50 bg-ok/10 p-3">
+          <p className="px-1 text-[14px] font-semibold text-ok">✓ 入力が完了しました</p>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => startNew()}
+              className="tap min-w-[190px] flex-1 rounded-card border border-hot/60 bg-hot/15 px-4 text-[14px] font-semibold text-hot"
+            >
+              ＋ 新しい繋ぎを入力する
+            </button>
+            {toTrack && (
+              <button
+                type="button"
+                onClick={() => startNew(toTrack)}
+                title={`From を「${toTrack.name}」にして次の繋ぎを入れる`}
+                className="tap min-w-[190px] flex-1 rounded-card border border-border bg-surface-2 px-4 text-[14px] text-fg-muted hover:text-fg"
+              >
+                To の曲から続けて入力する
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── 登録済みの繋ぎ。間違って入れたものはここから消す ── */}
       <section className="mt-8">
@@ -581,9 +622,12 @@ export function TransitionForm({
   );
 }
 
-/** 曲名の後ろに添える BPM。曲名の一部として折り返させたいので inline で置く */
+/**
+ * 曲名の後ろに添える BPM。曲名の続きとして折り返させたいので inline で置くが、
+ * 数と単位の間では折らない（`132` / `BPM` に割れると別の数に読める）
+ */
 const Bpm = ({ value }: { value: number | null }) => (
-  <span className="ml-1.5 font-mono text-[11px] tabular-nums text-fg-subtle">
+  <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
     {value ?? "–"}
     <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
   </span>
@@ -621,7 +665,8 @@ function Side({
         <div className="mt-2 flex items-start gap-2">
           <p className="min-w-0 flex-1 text-[16px] font-semibold break-words">
             {track.name}
-            <span className="ml-2 font-mono text-[12px] font-normal tabular-nums text-fg-muted">
+            {/* 「132 BPM · C」は1つの札。曲名が長いときは札ごと次の行へ送る（途中で割らない） */}
+            <span className="ml-2 whitespace-nowrap font-mono text-[12px] font-normal tabular-nums text-fg-muted">
               {track.bpm ?? "–"} BPM{track.musicalKey && ` · ${track.musicalKey}`}
             </span>
           </p>
