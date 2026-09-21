@@ -1,5 +1,4 @@
-import { getGraph } from "@/lib/graph";
-import { updateTransitionPractice } from "@/lib/transitions";
+import { isTransition, updateTransitionPractice } from "@/lib/transitions";
 
 /**
  * 要練習マークだけを付け外しする。星（`/api/transitions/rating`）と同じ、
@@ -15,8 +14,8 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "practice は true / false で送ってください" }, { status: 400 });
   }
 
-  const g = await getGraph();
-  if (!g.transitions.some((t) => t.id === id)) {
+  // 1行だけ読んで確かめる（全件を読み直すと、続けて押したときに Notion の上限に当たる）
+  if (!(await isTransition(id))) {
     return Response.json({ error: "その繋ぎは見つかりません" }, { status: 404 });
   }
 

@@ -1,6 +1,5 @@
 import { asDifficulty } from "@/lib/difficulty";
-import { getGraph } from "@/lib/graph";
-import { updateTransitionDifficulty } from "@/lib/transitions";
+import { isTransition, updateTransitionDifficulty } from "@/lib/transitions";
 
 /**
  * 難易度だけを付け替える。入力画面の一括編集から1タップで押すための入口
@@ -20,8 +19,8 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "知らない難易度です" }, { status: 400 });
   }
 
-  const g = await getGraph();
-  if (!g.transitions.some((t) => t.id === id)) {
+  // 1行だけ読んで確かめる（全件を読み直すと、続けて押したときに Notion の上限に当たる）
+  if (!(await isTransition(id))) {
     return Response.json({ error: "その繋ぎは見つかりません" }, { status: 404 });
   }
 

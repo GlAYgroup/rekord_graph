@@ -173,3 +173,22 @@ export async function updateTransitionDifficulty(id: string, difficulty: string 
   });
   revalidateTag(NOTION_TAG, { expire: 0 });
 }
+
+/**
+ * `id` が 🔀Transitions の（消していない）行か。1タップの保存（星・要練習・難易度）の確かめ用。
+ *
+ * 以前は `getGraph()` の一覧に在るかで見ていたが、直前の保存でキャッシュを捨てているので
+ * **1タップごとに3つの DB を全件読み直していた**（十数リクエスト）。一括編集で続けて押すと
+ * Notion の上限に当たって保存が落ちる。ここはその1行だけを読む（1リクエスト）。
+ */
+export async function isTransition(id: string): Promise<boolean> {
+  const bare = (s: string) => s.replace(/-/g, "").toLowerCase();
+  try {
+    const page = await request<{ archived?: boolean; parent?: { database_id?: string } }>(
+      `/pages/${encodeURIComponent(id)}`, { fresh: true },
+    );
+    return !page.archived && bare(page.parent?.database_id ?? "") === bare(DB.transitions);
+  } catch {
+    return false; // 知らない ID（404・形が違う）は「繋ぎではない」
+  }
+}

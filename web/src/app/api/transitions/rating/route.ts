@@ -1,6 +1,5 @@
-import { getGraph } from "@/lib/graph";
 import { RATINGS } from "@/lib/ratings";
-import { updateTransitionRating } from "@/lib/transitions";
+import { isTransition, updateTransitionRating } from "@/lib/transitions";
 
 /**
  * 星だけを付け替える。グラフ・曲ページから1タップで押せるようにするための入口。
@@ -20,8 +19,8 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "知らない評価です" }, { status: 400 });
   }
 
-  const g = await getGraph();
-  if (!g.transitions.some((t) => t.id === id)) {
+  // 1行だけ読んで確かめる（全件を読み直すと、続けて押したときに Notion の上限に当たる）
+  if (!(await isTransition(id))) {
     return Response.json({ error: "その繋ぎは見つかりません" }, { status: 404 });
   }
 

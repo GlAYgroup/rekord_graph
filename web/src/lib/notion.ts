@@ -92,6 +92,22 @@ export type NotionPage = {
 };
 
 /**
+ * 429（リクエスト数の上限）で待つ回数と、1回に待つ最長。Notion は平均3件/秒までで、
+ * sync（ローカル）・開発サーバ・Vercel が同じトークンを使うので、重なると普通に当たる
+ * （実測 2026-09-22: sync 中に本番の全画面が 429 で落ち、一括編集の保存も失敗した）。
+ * `retry_after` は最大30秒が返ってきたが、画面を30秒待たせるより失敗を返す方がまし
+ */
+const RETRIES = 3;
+const MAX_WAIT_MS = 8_000;
+
+/**
+ * 同じ読み込みが同時に走っているなら1本にまとめる。キャッシュを捨てた直後に
+ * 画面の先読み（/・/chain・/practice…）が一斉に来ると、それぞれが全件を取り直して
+ * 上限に当たる（上の実測で、4画面が同じミリ秒に 429 になっていた）
+ */
+const inflight = new Map<string, Promise<unknown>>();
+
+/**
  * Notion API への生アクセス。
  * `fresh: true` はキャッシュを通さない（保存した直後に読み直す配置パターン用）。
  */
@@ -99,20 +115,52 @@ export async function request<T = unknown>(
   path: string,
   init: { method?: string; body?: unknown; fresh?: boolean } = {},
 ): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    method: init.method ?? "GET",
-    headers: {
-      Authorization: `Bearer ${token()}`,
-      "Notion-Version": VERSION,
-      "Content-Type": "application/json",
-    },
-    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
-    ...(init.fresh
-      ? { cache: "no-store" as const }
-      : { next: { revalidate: REVALIDATE_SECONDS, tags: [NOTION_TAG] } }),
-  });
-  if (!res.ok) throw new Error(`Notion ${path}: ${res.status} ${await res.text()}`);
-  return res.json() as Promise<T>;
+  const method = init.method ?? "GET";
+  // まとめてよいのはキャッシュを通す読み込みだけ（書き込み・fresh は1回ずつ送る）
+  const key = init.fresh ? null : `${method} ${path} ${JSON.stringify(init.body ?? null)}`;
+  if (key) {
+    const running = inflight.get(key);
+    if (running) return running as Promise<T>;
+  }
+  const p = send<T>(path, method, init);
+  if (!key) return p;
+  inflight.set(key, p);
+  try {
+    return await p;
+  } finally {
+    inflight.delete(key);
+  }
+}
+
+async function send<T>(
+  path: string,
+  method: string,
+  init: { body?: unknown; fresh?: boolean },
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token()}`,
+        "Notion-Version": VERSION,
+        "Content-Type": "application/json",
+      },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+      ...(init.fresh
+        ? { cache: "no-store" as const }
+        : { next: { revalidate: REVALIDATE_SECONDS, tags: [NOTION_TAG] } }),
+    });
+    if (res.status === 429 && attempt < RETRIES) {
+      // Notion が言う待ち時間（秒）に従う。書いていなければ 1, 2, 4 秒
+      const after = Number(res.headers.get("retry-after"));
+      const wait = Math.min(MAX_WAIT_MS, Number.isFinite(after) && after > 0 ? after * 1000 : 1000 * 2 ** attempt);
+      await res.body?.cancel();
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Notion ${path}: ${res.status} ${await res.text()}`);
+    return res.json() as Promise<T>;
+  }
 }
 
 async function queryPage(dbId: string, cursor?: string, fresh?: boolean) {
