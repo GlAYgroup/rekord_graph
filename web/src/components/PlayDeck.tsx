@@ -347,12 +347,60 @@ export function PlayDeck({
 
   // 曲が決まっていない（＝最初の1曲）と、途中で別の曲へ移るときは同じ一覧を出す。
   // 違うのは選んだ結果だけ: 前者は「そこから始める」、後者は「後ろに足す」
+  /**
+   * 曲を選ぶ一覧の「最大◯曲」「◯分/◯分」を、**除外条件を入れたら数え直す**。
+   * 条件なしのときはサーバで数えた数（全曲ぶん・打ち切り無し）をそのまま使う。
+   * 全曲ぶんの探索は重いので、一覧を開いていて条件が入っているときだけ、条件が変わったら1回走らせる
+   * （検索欄の1文字ごとには走らせない。依存に検索語を入れない）
+   */
+  const pickerOpen = !current || picking;
+  const filteredCounts = useMemo(() => {
+    if (!pickerOpen || !filtering) return null;
+    const max: Record<string, number> = {};
+    const length: Record<string, SetLength> = {};
+    const truncated = new Set<string>();
+    for (const t of tracks) {
+      const r = maxOnwardFrom(usable, songOf, t.id, new Set());
+      max[t.id] = r.count;
+      length[t.id] = setLength(r.trackIds, r.edges, lengthLookup);
+      if (r.truncated) truncated.add(t.id);
+    }
+    return { max, length, truncated };
+  }, [pickerOpen, filtering, tracks, usable, songOf, lengthLookup]);
+
+  /** 除外条件のボタンと設定。プレイ中のヘッダと、曲を選ぶ一覧の両方に置く */
+  const filterButton = (
+    <button
+      onClick={() => setFilterOpen((v) => !v)}
+      aria-expanded={filterOpen}
+      className={`tap rounded-full border px-3 text-[12px] ${
+        filtering
+          ? "border-warn/50 bg-warn/10 text-warn"
+          : "border-border text-fg-subtle hover:text-fg"
+      }`}
+    >
+      {filtering ? `除外: ${filterSummary(filter)}` : "除外条件"}
+    </button>
+  );
+  const filterPanel = filterOpen && (
+    <FilterPanel
+      filter={filter}
+      genres={genres}
+      tagGroups={tagGroups}
+      onChange={setFilter}
+      onClose={() => setFilterOpen(false)}
+    />
+  );
+
   if (!current || picking) {
     return (
       <StartPicker
         tracks={tracks}
-        maxFrom={maxFrom}
-        maxLength={maxLength}
+        maxFrom={filteredCounts?.max ?? maxFrom}
+        maxLength={filteredCounts?.length ?? maxLength}
+        truncated={filteredCounts?.truncated ?? null}
+        filterButton={filterButton}
+        filterPanel={filterPanel}
         usedSongs={usedSongs}
         playedIds={new Set(path)}
         filtering={filtering}
@@ -482,29 +530,11 @@ export function PlayDeck({
           )}
           {hiddenPlayed > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hiddenPlayed}</span>}
           {hiddenFiltered > 0 && <span className="text-warn">条件で外した繋ぎ {hiddenFiltered}</span>}
-          <button
-            onClick={() => setFilterOpen((v) => !v)}
-            aria-expanded={filterOpen}
-            className={`tap ml-auto rounded-full border px-3 text-[12px] ${
-              filtering
-                ? "border-warn/50 bg-warn/10 text-warn"
-                : "border-border text-fg-subtle hover:text-fg"
-            }`}
-          >
-            {filtering ? `除外: ${filterSummary(filter)}` : "除外条件"}
-          </button>
+          <span className="ml-auto">{filterButton}</span>
         </p>
       </header>
 
-      {filterOpen && (
-        <FilterPanel
-          filter={filter}
-          genres={genres}
-          tagGroups={tagGroups}
-          onChange={setFilter}
-          onClose={() => setFilterOpen(false)}
-        />
-      )}
+      {filterPanel}
 
       {rows.length === 0 ? (
         <p className="mt-8 rounded-card border border-border bg-surface p-5 text-[14px] text-fg-muted">
@@ -709,16 +739,22 @@ export function PlayDeck({
  * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
  */
 function StartPicker({
-  tracks, maxFrom, maxLength, usedSongs, playedIds, filtering, mode, onPick, onCancel,
+  tracks, maxFrom, maxLength, truncated, filterButton, filterPanel,
+  usedSongs, playedIds, filtering, mode, onPick, onCancel,
 }: {
   tracks: Track[];
+  /** 除外条件が入っていれば、条件を通る繋ぎだけで数え直した数 */
   maxFrom: Record<string, number>;
   maxLength: Record<string, SetLength>;
+  /** 端末で数え直したときに探索を打ち切った曲（数は下限 =「以上」を付ける）。サーバの数なら null */
+  truncated: ReadonlySet<string> | null;
+  filterButton: React.ReactNode;
+  filterPanel: React.ReactNode;
   /** すでにかけた曲（songId。リミックス違いも含む）。外しはしないが、印を付けて後ろに回す */
   usedSongs: ReadonlySet<string>;
   /** かけた曲そのもの（曲ID）。印を「かけた」と「別版をかけた」で分けるためだけに使う */
   playedIds: ReadonlySet<string>;
-  /** 除外条件が入っているか。入っていても「最大◯曲」は全部の繋ぎで数えた数のまま */
+  /** 除外条件が入っているか（入っていれば右の数は条件つきで数え直したもの） */
   filtering: boolean;
   mode: "start" | "jump";
   onPick: (id: string) => void;
@@ -763,8 +799,11 @@ function StartPicker({
           : "選ぶとここから繋げる先が並びます。長くつなげる曲が上です。"}
         {/* 全曲ぶんを条件つきで数え直すと重いので、ここの数だけは条件を入れる前の数 */}
         {" 右の「◯分/◯分」は、一番長い道筋を繋ぎで切って流した長さ／曲を最後まで流した全長です。"}
-        {filtering && " 右の数は除外条件を入れる前のものです。"}
+        {filtering && " 右の数は除外条件で外した繋ぎを通らずに数えたものです。"}
       </p>
+      {/* 最初の1曲を選ぶ前から条件を決められるように（並びと数が条件で変わるため） */}
+      <div className="mt-3 flex justify-end">{filterButton}</div>
+      {filterPanel}
       {/* リセットの直後に立つのがこの画面なので、**曲の一覧より上に**履歴の入口を置く
           （84曲の下に置くと、前のセットを見返したい人には届かない） */}
       {mode === "start" && (
@@ -805,7 +844,9 @@ function StartPicker({
               */}
               <span className="flex w-[5.5rem] shrink-0 flex-col items-end gap-0.5 whitespace-nowrap text-right font-mono text-[11px] tabular-nums">
                 <span className={(maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"}>
-                  {(maxFrom[t.id] ?? 1) > 1 ? `最大${maxFrom[t.id]}曲` : "行き止まり"}
+                  {(maxFrom[t.id] ?? 1) > 1
+                    ? `最大${maxFrom[t.id]}曲${truncated?.has(t.id) ? "以上" : ""}`
+                    : "行き止まり"}
                 </span>
                 {/* その道筋を流したら何分か。上がカット後、下が曲を頭から最後まで流した全長 */}
                 {(maxFrom[t.id] ?? 1) > 1 && maxLength[t.id] && (
