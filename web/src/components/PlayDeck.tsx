@@ -102,7 +102,14 @@ export function PlayDeck({
     if (initRef.current) return;
     initRef.current = true;
     setRestored(true);
-    if (initialTrackId) {
+    /*
+      「この曲から始める」は、**アドレスにまだ `?from=` が残っているとき**だけ。
+      下で URL から外しても、Next は `?from=` で描いた画面データを履歴に持っている。
+      「履歴」を開いてから戻ると、その古いデータ（initialTrackId 付き）でここが作り直され、
+      途中まで来たセットが最初の1曲に巻き戻っていた（頼んでいないのに履歴へも積まれる。実際に起きた）
+    */
+    const fromInUrl = new URLSearchParams(window.location.search).get("from");
+    if (initialTrackId && fromInUrl === initialTrackId) {
       // 曲を指定して来た人が優先。ただし指定は URL から外す
       // （セットの途中で再読み込みしたときに、また最初の曲へ戻されないように）
       // 途中だったセットはここで終わる = 捨てずに履歴へ残す
@@ -110,8 +117,8 @@ export function PlayDeck({
       window.history.replaceState(null, "", "/play");
       return;
     }
-    const stored = readCurrent().filter((s) => trackById.has(s.trackId));
-    if (stored.length) setSteps(stored);
+    // 端末に残した続きが正。空なら（リセット済みなど）古い指定の曲も使わず、最初の1曲から選ぶ
+    setSteps(readCurrent().filter((s) => trackById.has(s.trackId)));
   }, [initialTrackId, trackById]);
 
   useEffect(() => {
@@ -121,10 +128,11 @@ export function PlayDeck({
 
   // 一覧と行き先カードは別の長さの画面なのに、切り替えても縦位置は残る。
   // 3枚目まで送ってから「曲を変える」を押すと、84曲の一覧の途中（検索欄も「やめる」も
-  // 画面の外）から始まってしまうので、開くときと閉じるときだけ上に戻す
-  useEffect(() => { window.scrollTo({ top: 0 }); }, [picking]);
-
+  // 画面の外）から始まってしまうので、開くときと閉じるときは上に戻す。
+  // **今の曲が変わったとき**（カードで送る・戻す・リセット）も同じ: 下の方のカードで送ると、
+  // 次の曲の一覧はいちばん先の長い候補（＝一番上）が画面の上に隠れたまま始まっていた
   const currentId = path[path.length - 1] ?? null;
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [picking, currentId]);
   const current = currentId ? trackById.get(currentId) : undefined;
   /** 曲ID -> 同じ曲の仲間で共通の ID。リミックス違いは同じ値 */
   const songOf = useMemo(
@@ -186,6 +194,14 @@ export function PlayDeck({
       ).count
     : 0;
 
+  // かけてきた順は右端（最新）を見せる。横スクロールの箱は左端から始まるので、
+  // スマホでは2〜3曲で最新側と「→ 今」が画面の外に切れていた
+  const crumbsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = crumbsRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [path]);
+
   // 曲が決まっていない（＝最初の1曲）と、途中で別の曲へ移るときは同じ一覧を出す。
   // 違うのは選んだ結果だけ: 前者は「そこから始める」、後者は「後ろに足す」
   if (!current || picking) {
@@ -217,13 +233,17 @@ export function PlayDeck({
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <span className="label">{performing ? "本番 · 今かけている曲" : "今かけている曲"}</span>
+            {/*
+              曲名は刈らずに折り返すので2〜3行になる。角を丸め切る（rounded-full）と、
+              丸みが1行目と最後の行の端に掛かって字が欠けて見えた。行き先のチップと同じ角にする
+            */}
             <div
-              className="mt-1 inline-flex max-w-full flex-wrap items-center gap-2 rounded-full border border-hot/50 bg-hot/12 px-3.5 py-1.5"
+              className="mt-1 inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-card border border-hot/50 bg-hot/12 px-3.5 py-1.5"
             >
               <span className="min-w-0 break-words text-[17px] font-bold leading-tight text-hot">
                 {current.name}
               </span>
-              <span className="shrink-0 font-mono text-[11.5px] tabular-nums text-hot/80">
+              <span className="shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums text-hot/80">
                 {current.bpm ?? "–"}{current.musicalKey && ` ${current.musicalKey}`}
               </span>
             </div>
@@ -249,7 +269,7 @@ export function PlayDeck({
 
         {/* かけてきた順。押すとそこまで戻れる = 押し間違えても1タップで直せる */}
         {path.length > 1 && (
-          <nav className="mt-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[12px] text-fg-subtle">
+          <nav ref={crumbsRef} className="mt-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[12px] text-fg-subtle">
             {path.slice(0, -1).map((id, i) => (
               <span key={`${id}-${i}`} className="shrink-0">
                 {i > 0 && <span className="mx-1">→</span>}
@@ -433,7 +453,8 @@ export function PlayDeck({
             </button>
             <Link
               href="/play/history"
-              className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
+              // リンクは button と違って中身を縦に寄せないので、44px の高さの上端に字が貼り付く
+              className="tap inline-flex items-center rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
             >
               履歴
             </Link>
@@ -525,24 +546,28 @@ function StartPicker({
           <li key={t.id}>
             <button
               onClick={() => onPick(t.id)}
-              className="tap flex w-full items-center gap-2 rounded-card border border-border bg-surface px-3.5 text-left transition-colors hover:border-border-bright"
+              className="tap flex w-full items-center gap-3 rounded-card border border-border bg-surface px-3.5 py-1.5 text-left transition-colors hover:border-border-bright"
             >
-              <span className="min-w-0 flex-1 break-words text-[15px]">{t.name}</span>
-              {/* 使い切りにする曲でも選べるようにはしておく（本番で戻すこともある）。印だけ付けて後ろへ */}
-              {usedSongs.has(t.songId) && (
-                <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10.5px] text-fg-subtle">
-                  {playedIds.has(t.id) ? "かけた" : "別版をかけた"}
-                </span>
-              )}
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
-                {t.bpm ?? "–"} {t.musicalKey}
+              <span className="min-w-0 flex-1 break-words text-[15px]">
+                {t.name}
+                {/* 使い切りにする曲でも選べるようにはしておく（本番で戻すこともある）。印だけ付けて後ろへ */}
+                {usedSongs.has(t.songId) && (
+                  <span className="ml-2 inline-block whitespace-nowrap rounded border border-border px-1.5 py-0.5 align-middle text-[10.5px] text-fg-subtle">
+                    {playedIds.has(t.id) ? "かけた" : "別版をかけた"}
+                  </span>
+                )}
               </span>
-              <span
-                className={`shrink-0 font-mono text-[11px] tabular-nums ${
-                  (maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"
-                }`}
-              >
-                {(maxFrom[t.id] ?? 1) > 1 ? `最大${maxFrom[t.id]}曲` : "行き止まり"}
+              {/*
+                右の数字は幅を決めて右に揃え、2段に積む。横に並べていたときは中身で幅が変わり、
+                行ごとに右端がずれたうえ、曲名が 120px 前後に押し込まれて3〜4行に割れていた
+              */}
+              <span className="flex w-[4.5rem] shrink-0 flex-col items-end gap-0.5 whitespace-nowrap text-right font-mono text-[11px] tabular-nums">
+                <span className={(maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"}>
+                  {(maxFrom[t.id] ?? 1) > 1 ? `最大${maxFrom[t.id]}曲` : "行き止まり"}
+                </span>
+                <span className="text-fg-subtle">
+                  {t.bpm ?? "–"} {t.musicalKey}
+                </span>
               </span>
             </button>
           </li>

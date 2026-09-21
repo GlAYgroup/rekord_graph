@@ -67,13 +67,14 @@ export default async function TrackPage({
           ))}
         </nav>
         <div className="flex items-end gap-3">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight break-words lg:text-[30px]">
+          <h1 className="min-w-0 text-[26px] font-bold leading-tight tracking-tight break-words lg:text-[30px]">
             {track.name}
           </h1>
           <span className="ml-auto shrink-0 font-mono text-[13px] tabular-nums text-fg-muted">
             {track.bpm ?? "–"}<span className="text-fg-subtle"> BPM</span>
             {track.musicalKey && <> · {track.musicalKey}</>}
-            {track.durationSec && (
+            {/* `&&` のままだと長さ 0 の曲で「0」がそのまま出る */}
+            {track.durationSec != null && track.durationSec > 0 && (
               <span className="hidden sm:inline text-fg-subtle">
                 {" "}· {Math.floor(track.durationSec / 60)}:{String(track.durationSec % 60).padStart(2, "0")}
               </span>
@@ -96,7 +97,7 @@ export default async function TrackPage({
               )}
               {route.trackIds.length > 1 && (
                 <Link href={`/graph?mode=tree&root=${id}`} className="text-[12px] text-hot hover:underline">
-                  ツリー: 最大 {route.trackIds.length} 曲 →
+                  ツリー: <span className="whitespace-nowrap">最大 {route.trackIds.length} 曲</span> →
                 </Link>
               )}
             </span>
@@ -140,7 +141,8 @@ export default async function TrackPage({
                   <li key={c.id} className="flex items-center gap-2.5 px-3 py-2">
                     <CuePad cue={c} size="sm" />
                     <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13.5px]">
-                      <span className="min-w-0 truncate">
+                      {/* キュー名は刈らない（キュー名が正。長ければ折り返す） */}
+                      <span className="min-w-0 break-words">
                         {c.name || <span className="text-fg-subtle">（名前なし）</span>}
                       </span>
                       <LoopTag cue={c} />
@@ -169,7 +171,7 @@ export default async function TrackPage({
                         <span className="text-fg-subtle text-[12px] shrink-0">◂</span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-[14px] break-words">{from?.name ?? "?"}</span>
-                          <span className="block truncate text-[12px] text-fg-subtle">
+                          <span className="block break-words text-[12px] text-fg-subtle">
                             {cueLabel(g.cueById.get(t.fromCueId))} → {cueLabel(g.cueById.get(t.toCueId))}
                           </span>
                         </span>

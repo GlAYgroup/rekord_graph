@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 /**
@@ -12,13 +13,19 @@ import { useState } from "react";
  * **リンクやカードの中に置く前提**なので、クリックは必ず止める（親のページ遷移を殺す）。
  */
 export function PracticeToggle({
-  id, value, className = "",
+  id, value, className = "", refresh = true,
 }: {
   /** 🔀Transitions のページID */
   id: string;
   value: boolean;
   className?: string;
+  /**
+   * 保存できたら画面を取り直すか。**グラフのパネルでは false** — 取り直すと地図に
+   * 新しい props が届いて配置を敷き直し、拡大・移動していた所から全体表示へ戻ってしまう
+   */
+  refresh?: boolean;
 }) {
+  const router = useRouter();
   /** 押した結果。null = まだ押していない（= サーバの値をそのまま出す） */
   const [pressed, setPressed] = useState<boolean | null>(null);
   const [seenValue, setSeenValue] = useState(value);
@@ -40,6 +47,11 @@ export function PracticeToggle({
         body: JSON.stringify({ id, practice: !before }),
       });
       if (!res.ok) throw new Error();
+      // API の revalidateTag が捨てるのはサーバのキャッシュだけ。端末のルーターキャッシュ
+      // （先読みした /practice・戻る/進む）は最大5分古いまま残り、/play のカードは props の
+      // practice を読むので、描き直すとマークが消えていた。取り直した値は上の seenValue が拾う
+      // （/practice では外した行がここで消える。空にするのがゴールなので、それで正しい）
+      if (refresh) router.refresh();
     } catch {
       setPressed(before);
       setFailed(true);

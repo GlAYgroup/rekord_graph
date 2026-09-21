@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { RATINGS, ratingOf, starCount } from "@/lib/ratings";
 
@@ -13,14 +14,17 @@ import { RATINGS, ratingOf, starCount } from "@/lib/ratings";
  * **リンクやカードの中に置く前提**なので、クリックは必ず止める（親のページ遷移を殺す）。
  */
 export function RatingPicker({
-  id, value, size = "md", className = "",
+  id, value, size = "md", className = "", refresh = true,
 }: {
   /** 🔀Transitions のページID */
   id: string;
   value: string | null;
   size?: "sm" | "md";
   className?: string;
+  /** 保存できたら画面を取り直すか。グラフのパネルでは false（PracticeToggle と同じ理由） */
+  refresh?: boolean;
 }) {
+  const router = useRouter();
   /** 押した結果。null = まだ押していない（= サーバの値をそのまま出す） */
   const [pressed, setPressed] = useState<number | null>(null);
   const [seenValue, setSeenValue] = useState(value);
@@ -42,6 +46,9 @@ export function RatingPicker({
         body: JSON.stringify({ id, rating: ratingOf(next) }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "保存に失敗しました");
+      // revalidateTag が捨てるのはサーバのキャッシュだけで、端末のルーターキャッシュ（他の画面・
+      // 戻る/進む）には最大5分前の星が残る。取り直した値は上の seenValue が拾う（PracticeToggle と同じ）
+      if (refresh) router.refresh();
     } catch {
       setPressed(before);
       setFailed(true);

@@ -55,8 +55,9 @@ export type BarsLike = { bars: number | null; barsAfter: number | null };
  * 万一両方入っていても答えを2つ出さないよう、ここでは「後」を先に見る。
  */
 export function barsLabel(t: BarsLike, toCueLabel: string): string | null {
-  if (t.barsAfter != null) return `次の曲 ${toCueLabel}の${t.barsAfter}小節後`;
-  if (t.bars != null) return `次の曲 ${toCueLabel}の${t.bars}小節前`;
+  // 数字と「小節」の間に WORD JOINER（U+2060・見えない）。狭い画面で `16` / `小節前` と割れないように
+  if (t.barsAfter != null) return `次の曲 ${toCueLabel}の${t.barsAfter}\u2060小節後`;
+  if (t.bars != null) return `次の曲 ${toCueLabel}の${t.bars}\u2060小節前`;
   return null;
 }
 

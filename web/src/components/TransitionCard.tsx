@@ -41,9 +41,14 @@ export function TransitionCard({
       style={{ animationDelay: `${Math.min(index, 8) * 40}ms`, boxShadow: "var(--shadow-card)" }}
     >
       <Link href={href} className="block p-4">
-        <div className="flex items-center gap-2 mb-3">
+        {/*
+          曲名に幅を渡す。札（この先N曲・テンポ・BPM）はどれも縮まないので、同じ行に並べたままだと
+          スマホでは曲名が 100px 前後に押し込まれて4行に割れ、長い英単語は札を枠の外へ押し出していた。
+          曲名の基準幅（basis-56）が取れないときは、札だけ次の行へ回す（PC では1行のまま）
+        */}
+        <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-fg-subtle text-sm shrink-0">{direction === "out" ? "▸" : "◂"}</span>
-          <span className="font-semibold text-[18px] break-words">{otherTrack?.name ?? "不明な曲"}</span>
+          <span className="min-w-0 grow basis-56 font-semibold text-[18px] break-words">{otherTrack?.name ?? "不明な曲"}</span>
           {direction === "out" && maxOnward !== null && (
             maxOnward > 1 ? (
               <span
@@ -60,7 +65,7 @@ export function TransitionCard({
           )}
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
             <TempoBadge from={currentBpm} to={otherTrack?.bpm ?? null} />
-            <span className="font-mono text-[11px] text-fg-subtle tabular-nums">
+            <span className="whitespace-nowrap font-mono text-[11px] text-fg-subtle tabular-nums">
               {otherTrack?.bpm ?? "–"}{otherTrack?.musicalKey && ` ${otherTrack.musicalKey}`}
             </span>
           </span>
@@ -91,7 +96,7 @@ export function TransitionCard({
                 {barsLabel(transition, cueLabel(toCue))}
               </span>
             )}
-            {transition.comment && <span>{transition.comment}</span>}
+            {transition.comment && <span className="min-w-0 break-words">{transition.comment}</span>}
           </p>
         )}
 
@@ -106,17 +111,24 @@ export function TransitionCard({
         どのキュー同士を結ぶかをここから直しに行けるようにする（入力画面が開く）。
         パフォーマンスモードでは行ごと消える（data-edit）
       */}
-      <div data-edit className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-1.5">
+      <div data-edit className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-4 py-1.5">
         <span className="label">評価</span>
         <RatingPicker id={transition.id} value={transition.rating} className="-my-0.5 ml-auto" />
-        <PracticeToggle id={transition.id} value={transition.practice} />
-        <Link
-          href={`/new?edit=${transition.id}`}
-          className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
-          title="この繋ぎのキュー・種類・コメントを直す"
-        >
-          編集
-        </Link>
+        {/*
+          スマホでは星（180px）と要練習・編集が1行に収まらない。ばらばらに折り返すと
+          「編集」だけが次の行の左端に落ちていたので、要練習と編集はひとまとめにして
+          次の行の右端へ落とす（1段目 = 評価と星、2段目 = 操作）。PC では星の隣に並ぶ
+        */}
+        <span className="ml-auto flex items-center gap-2 sm:ml-0">
+          <PracticeToggle id={transition.id} value={transition.practice} />
+          <Link
+            href={`/new?edit=${transition.id}`}
+            className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+            title="この繋ぎのキュー・種類・コメントを直す"
+          >
+            編集
+          </Link>
+        </span>
       </div>
     </div>
   );

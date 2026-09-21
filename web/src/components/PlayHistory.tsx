@@ -41,7 +41,8 @@ export function PlayHistory({
         <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">プレイ履歴</h1>
         <Link
           href="/play"
-          className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+          // リンクは button と違って中身を縦に寄せないので、44px の高さの上端に字が貼り付く
+          className="tap inline-flex shrink-0 items-center rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
         >
           プレイへ
         </Link>

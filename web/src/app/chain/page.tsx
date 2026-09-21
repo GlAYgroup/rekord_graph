@@ -12,13 +12,24 @@ export const metadata = { title: "チェーン | rekord_graph" };
  * 転生林檎にもローリンガールにも行った）。直列リストに挟むと線として
  * 読めなくなるので、最長の連続再生を主線として選び、残りは分岐として添える。
  */
+/** チェーン名が空の繋ぎ（入力画面の「チェーン」欄を空のまま保存したもの）の寄せ集め */
+const UNSORTED = "（未分類）";
+
+/**
+ * 主線探しの打ち切り（試した繋ぎの数）。名前の付いたチェーンは数本〜十数本なので
+ * 実データでは届かない。届いたら、それまでに見つけた最長で止める（止まらない画面よりまし）
+ */
+const MAX_STEPS = 20_000;
+
 function orderChain(list: Transition[]): { main: Transition[]; branches: Transition[] } {
   const sorted = [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
+  let steps = 0;
   const longestFrom = (track: string, used: Set<string>): Transition[] => {
     let best: Transition[] = [];
     for (const t of sorted) {
       if (used.has(t.id) || t.fromTrackId !== track) continue;
+      if (++steps > MAX_STEPS) break;
       used.add(t.id);
       const rest = longestFrom(t.toTrackId, used);
       if (1 + rest.length > best.length) best = [t, ...rest];
@@ -50,7 +61,7 @@ function chainTitle(g: Graph, main: Transition[]): string {
 
 /** 曲名の後ろに添える BPM。曲名の一部として折り返させたいので inline で置く */
 const Bpm = ({ value }: { value: number | null }) => (
-  <span className="ml-1.5 font-mono text-[11px] tabular-nums text-fg-subtle">
+  <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
     {value ?? "–"}
     <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
   </span>
@@ -68,25 +79,26 @@ function Row({ g, t, branch }: { g: Graph; t: Transition; branch?: boolean }) {
           </span>
         )}
         {/* 曲名には BPM を添える。流れを読み返すとき、どこでテンポが動いたかが要る */}
-        <Link href={`/track/${t.fromTrackId}`} className="break-words hover:text-accent">
+        <Link href={`/track/${t.fromTrackId}`} className="min-w-0 break-words hover:text-accent">
           {from?.name ?? "?"}
           <Bpm value={from?.bpm ?? null} />
         </Link>
         <span className="shrink-0 text-fg-subtle">→</span>
-        <Link href={`/track/${t.toTrackId}`} className="break-words hover:text-accent">
+        <Link href={`/track/${t.toTrackId}`} className="min-w-0 break-words hover:text-accent">
           {to?.name ?? "?"}
           <Bpm value={to?.bpm ?? null} />
         </Link>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <CuePad cue={g.cueById.get(t.fromCueId)} size="sm" />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-fg-muted">
+        {/* キュー名は刈らない（キュー名が正。`助走 1サビ…` では別のキューと見分けられない）。長ければ折り返す */}
+        <span className="min-w-0 flex-1 break-words text-[13px] text-fg-muted">
           {g.cueById.get(t.fromCueId)?.name}
         </span>
         <LoopTag cue={g.cueById.get(t.fromCueId)} />
         <span className="shrink-0 text-[12px] text-fg-subtle">→</span>
         <CuePad cue={g.cueById.get(t.toCueId)} size="sm" />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-fg-muted">
+        <span className="min-w-0 flex-1 break-words text-[13px] text-fg-muted">
           {g.cueById.get(t.toCueId)?.name}
         </span>
         <LoopTag cue={g.cueById.get(t.toCueId)} />
@@ -101,7 +113,7 @@ export default async function ChainPage() {
 
   const byChain = new Map<string, Transition[]>();
   for (const t of g.transitions) {
-    const key = t.chain || "（未分類）";
+    const key = t.chain || UNSORTED;
     (byChain.get(key) ?? byChain.set(key, []).get(key)!).push(t);
   }
 
@@ -118,12 +130,20 @@ export default async function ChainPage() {
         {[...byChain.entries()]
           .sort(([a], [b]) => a.localeCompare(b, "ja", { numeric: true }))
           .map(([name, list], ci) => {
-            const { main, branches } = orderChain(list);
+            /*
+              未分類はチェーンではない（名前の無い繋ぎの寄せ集め）ので、主線を探さず新しい順に並べる。
+              探すと、入力画面から入れた繋ぎ（チェーン欄は空が既定）が増えるほど探索が爆発する
+              （実測: 114本でページ1枚に約50秒。静的生成の上限 60秒に迫っていた）
+            */
+            const unsorted = name === UNSORTED;
+            const { main, branches } = unsorted
+              ? { main: [...list].sort((a, b) => b.createdTime.localeCompare(a.createdTime)), branches: [] }
+              : orderChain(list);
             return (
               <section key={name} className="mb-6 break-inside-avoid rise" style={{ animationDelay: `${ci * 50}ms` }}>
                 <h2 className="label mb-1">{name.replace(/^chain/i, "チェーン ")} · {list.length}本</h2>
-                <p className="mb-2 truncate text-[12.5px] text-fg-muted" title={chainTitle(g, main)}>
-                  {chainTitle(g, main)}
+                <p className="mb-2 break-words text-[12.5px] text-fg-muted" title={unsorted ? undefined : chainTitle(g, main)}>
+                  {unsorted ? "チェーン名の無い繋ぎ（新しい順）" : chainTitle(g, main)}
                 </p>
                 <ol className="rounded-card border border-border bg-surface divide-y divide-border">
                   {main.map((t) => <Row key={t.id} g={g} t={t} />)}
