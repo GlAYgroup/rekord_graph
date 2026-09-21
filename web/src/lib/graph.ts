@@ -68,9 +68,38 @@ function songName(title: string, alias: string): string {
   return s || title;
 }
 
+/**
+ * 🎵Tracks の曲名列から rekordbox の原題を取り出す。sync は短縮名が原題と違う曲を
+ * 「短縮名 / 原題」の形で書く（`tools/sync.py` の `_track_title`）。
+ * リミックス名は**原題の側から**拾う — 短縮名の括弧まで拾うと、
+ * `六兆年と一夜物語(master) / 六兆年と一夜物語（master weiss HASS）` が `master` だけになる
+ */
+function rekordboxTitle(title: string, alias: string): string {
+  const head = `${alias} / `;
+  return alias && title.startsWith(head) ? title.slice(head.length) : title;
+}
+
+/**
+ * 別名（= sync が作る短縮名）の末尾の識別子 `(…)` を外す。外せるときだけ。
+ *
+ * 短縮名は、同じ曲名が複数あるときだけ `フォニイ(6Tan)` のように識別子を付けて一意にしてある
+ * （📍Cues でどの曲のキューか見分けるため。向こうでは外せない。
+ * `tools/gen_cue_payload.py` の `build_short_names`）。識別子はリミックス名から取った語なので、
+ * そのままリミックス名を足すと `フォニイ(6Tan) (6Tan bootleg)` と二重になっていた（41曲）。
+ * **識別子の語が全部リミックス名に入っているときだけ**外す（足すリミックス名で見分けが付く）
+ */
+function withoutShortNameTag(alias: string, tag: string): string {
+  const m = alias.match(/^(.+?)\(([^()]+)\)$/);
+  if (!m || !tag) return alias;
+  const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/_/g, " ");
+  const hay = norm(tag);
+  return norm(m[2]).split(/\s+/).filter(Boolean).every((w) => hay.includes(w)) ? m[1].trim() : alias;
+}
+
 function displayName(title: string, alias: string): string {
-  const base = songName(title, alias);
-  let tag = remixTag(title);
+  const original = rekordboxTitle(title, alias);
+  let tag = remixTag(original);
+  const base = songName(original, withoutShortNameTag(alias, tag));
   // 曲名がそのままリミックス名に混ざることがある（`テトリス Wipecore VIP`）。落とす
   if (tag && base) {
     tag = tag.replace(new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "i"), "").trim();
