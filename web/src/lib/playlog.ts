@@ -106,7 +106,7 @@ export function deleteSet(id: string): PlaySet[] {
  * `/play` の除外条件。**端末の設定**なので、かけてきた順と同じく localStorage だけが持つ
  * （セットをリセットしても残す = 「今夜は Hard を使わない」は1セットより長く効く）。
  *
- * どちらも **未入力の繋ぎは外さない**。難易度・評価は後から付けていくものなので、
+ * 難易度・星・ジャンルは **未入力なら外さない**。難易度・評価は後から付けていくものなので、
  * 未入力を外すと条件を入れた瞬間にほとんどの繋ぎが消える（壊れたように見える）。
  */
 export type PlayFilter = {
@@ -114,9 +114,13 @@ export type PlayFilter = {
   maxDifficulty: string | null;
   /** 星がこれ未満の繋ぎを外す。0 = 外さない */
   minStars: number;
+  /** 要練習マークの付いた繋ぎを外す（「まだ本番で使えない」印なので） */
+  skipPractice: boolean;
+  /** 行き先の曲のジャンルがこれに入る繋ぎを外す（`genreKey` の値）。ジャンル未入力の曲は外さない */
+  skipGenres: string[];
 };
 
-export const NO_FILTER: PlayFilter = { maxDifficulty: null, minStars: 0 };
+export const NO_FILTER: PlayFilter = { maxDifficulty: null, minStars: 0, skipPractice: false, skipGenres: [] };
 
 const FILTER = "rg.play.filter.v1";
 
@@ -126,6 +130,10 @@ export function readFilter(): PlayFilter {
   return {
     maxDifficulty: typeof raw.maxDifficulty === "string" ? raw.maxDifficulty : null,
     minStars: typeof raw.minStars === "number" ? raw.minStars : 0,
+    skipPractice: raw.skipPractice === true,
+    skipGenres: Array.isArray(raw.skipGenres)
+      ? raw.skipGenres.filter((g): g is string => typeof g === "string" && g !== "")
+      : [],
   };
 }
 

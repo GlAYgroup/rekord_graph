@@ -11,6 +11,13 @@ export function formatPosition(ms: number | null): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
 }
 
+/**
+ * ジャンルを束ねる鍵。実機のジャンル欄は `vocaloid` / `VOCALOID` / `Vocaloid` のように
+ * 大文字小文字が揺れるので、NFKC＋小文字＋空白詰めで同じものとして扱う。未入力は ""
+ */
+export const genreKey = (genre: string): string =>
+  genre.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
+
 /** BPM 差を % で返す。テンポが合うかを一目で見るため。 */
 export function bpmDelta(from: number | null, to: number | null): number | null {
   if (!from || !to) return null;

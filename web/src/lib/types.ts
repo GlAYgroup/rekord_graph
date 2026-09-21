@@ -13,6 +13,8 @@ export type Track = {
   fullTitle: string;
   alias: string;
   artist: string;
+  /** rekordbox のジャンル欄（🎵Tracks の鏡）。未入力は ""。/play の除外条件に使う */
+  genre: string;
   bpm: number | null;
   musicalKey: string;
   rekordboxId: string;

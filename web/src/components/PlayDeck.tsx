@@ -7,7 +7,7 @@ import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
-import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
+import { barsLabel, bpmDelta, cueLabel, genreKey } from "@/lib/format";
 import { DIFFICULTIES, DIFFICULTY_LABEL, difficultyRank, type Difficulty } from "@/lib/difficulty";
 import {
   archive, NO_FILTER, readCurrent, readFilter, writeCurrent, writeFilter,
@@ -48,9 +48,9 @@ import type { Cue, Track, Transition } from "@/lib/types";
  *   （`lib/playlog.ts`。一覧は `/play/history`）。そのため1手ごとに「押した繋ぎの ID」も
  *   一緒に持つ — 同じ2曲の間に繋ぎが複数あることがあり、後から曲の組ではひき直せない。
  *
- * ★ 除外条件（難易度「◯まで」・星「◯以上」）で繋ぎを外せる。外した繋ぎは**無いものとして**
+ * ★ 除外条件（難易度「◯まで」・星「◯以上」・要練習・行き先のジャンル）で繋ぎを外せる。外した繋ぎは**無いものとして**
  *   「この先◯曲」も数え直す（カードだけ隠すと、外した繋ぎを通った数と並びが残る）。
- *   未入力の繋ぎは外さない。条件は端末に残り、リセットしても消えない（`lib/playlog.ts`）。
+ *   難易度・星・ジャンルが未入力なら外さない。条件は端末に残り、リセットしても消えない（`lib/playlog.ts`）。
  *   Notion に何も書かないので `data-edit` は付けない（本番中に緩められないと困る）。
  */
 
@@ -94,7 +94,8 @@ export function PlayDeck({
   /** 除外条件。端末に残したものを mount 後に読む */
   const [filter, setFilter] = useState<PlayFilter>(NO_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
-  const filtering = filter.maxDifficulty !== null || filter.minStars > 0;
+  const filtering =
+    filter.maxDifficulty !== null || filter.minStars > 0 || filter.skipPractice || filter.skipGenres.length > 0;
 
   const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
   const cueById = useMemo(() => new Map(cues.map((c) => [c.id, c])), [cues]);
@@ -155,14 +156,51 @@ export function PlayDeck({
    */
   const passes = useMemo(() => {
     const maxRank = difficultyRank(filter.maxDifficulty);
+    const skipGenres = new Set(filter.skipGenres);
     return (t: Transition) => {
+      if (filter.skipPractice && t.practice) return false;
+      if (skipGenres.size > 0) {
+        const g = genreKey(trackById.get(t.toTrackId)?.genre ?? "");
+        if (g && skipGenres.has(g)) return false;
+      }
       const rank = difficultyRank(t.difficulty);
       if (maxRank > 0 && rank > maxRank) return false;
       const stars = starCount(t.rating);
       if (filter.minStars > 0 && stars > 0 && stars < filter.minStars) return false;
       return true;
     };
-  }, [filter]);
+  }, [filter, trackById]);
+  /**
+   * 除外条件に出すジャンル = **繋ぎの行き先になっている曲**のジャンルだけ（外して意味があるもの）。
+   * 表記ゆれは `genreKey` で束ね、見出しは一番多い書き方を使う。曲の多い順
+   */
+  const genres = useMemo(() => {
+    const byKey = new Map<string, { key: string; count: number; spellings: Map<string, number> }>();
+    const seen = new Set<string>();
+    for (const t of transitions) {
+      if (seen.has(t.toTrackId)) continue;
+      seen.add(t.toTrackId);
+      const raw = trackById.get(t.toTrackId)?.genre ?? "";
+      const key = genreKey(raw);
+      if (!key) continue;
+      const e = byKey.get(key) ?? { key, count: 0, spellings: new Map() };
+      e.count += 1;
+      e.spellings.set(raw, (e.spellings.get(raw) ?? 0) + 1);
+      byKey.set(key, e);
+    }
+    // 外したまま曲が消えた（ジャンルを直した）ものも、外せるように残す
+    for (const key of filter.skipGenres) {
+      if (!byKey.has(key)) byKey.set(key, { key, count: 0, spellings: new Map([[key, 1]]) });
+    }
+    return [...byKey.values()]
+      .map((e) => ({
+        key: e.key,
+        count: e.count,
+        label: [...e.spellings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0],
+      }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ja"));
+  }, [transitions, trackById, filter.skipGenres]);
+
   /** 条件で外した繋ぎを抜いた隣接。「この先◯曲」はこちらで数える */
   const usable = useMemo(() => {
     const m = new Map<string, Transition[]>();
@@ -393,7 +431,14 @@ export function PlayDeck({
         </p>
       </header>
 
-      {filterOpen && <FilterPanel filter={filter} onChange={setFilter} onClose={() => setFilterOpen(false)} />}
+      {filterOpen && (
+        <FilterPanel
+          filter={filter}
+          genres={genres}
+          onChange={setFilter}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
 
       {rows.length === 0 ? (
         <p className="mt-8 rounded-card border border-border bg-surface p-5 text-[14px] text-fg-muted">
@@ -719,6 +764,8 @@ function filterSummary(f: PlayFilter): string {
   const parts: string[] = [];
   if (f.maxDifficulty) parts.push(`${f.maxDifficulty}まで`);
   if (f.minStars > 0) parts.push(`${"★".repeat(f.minStars)}以上`);
+  if (f.skipPractice) parts.push("要練習なし");
+  if (f.skipGenres.length > 0) parts.push(`ジャンル${f.skipGenres.length}つ`);
   return parts.join("・");
 }
 
@@ -728,9 +775,11 @@ function filterSummary(f: PlayFilter): string {
  * 未入力の繋ぎはどの条件でも外さない。
  */
 function FilterPanel({
-  filter, onChange, onClose,
+  filter, genres, onChange, onClose,
 }: {
   filter: PlayFilter;
+  /** 選べるジャンル（`genreKey` で束ねたもの）と、それを行き先に持つ曲の数 */
+  genres: { key: string; label: string; count: number }[];
   onChange: (f: PlayFilter) => void;
   onClose: () => void;
 }) {
@@ -777,8 +826,52 @@ function FilterPanel({
           ))}
         </div>
       </div>
+      <div>
+        <span className="label">要練習</span>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <button
+            onClick={() => onChange({ ...filter, skipPractice: !filter.skipPractice })}
+            aria-pressed={filter.skipPractice}
+            className={chip(filter.skipPractice)}
+          >
+            {filter.skipPractice ? "要練習の繋ぎを外す" : "要練習の繋ぎも出す"}
+          </button>
+        </div>
+      </div>
+      {genres.length > 0 && (
+        <div>
+          <span className="label">ジャンル · 押したジャンルの曲へは繋がない</span>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {genres.map((g) => {
+              const off = filter.skipGenres.includes(g.key);
+              return (
+                <button
+                  key={g.key}
+                  onClick={() =>
+                    onChange({
+                      ...filter,
+                      skipGenres: off
+                        ? filter.skipGenres.filter((k) => k !== g.key)
+                        : [...filter.skipGenres, g.key],
+                    })
+                  }
+                  aria-pressed={off}
+                  className={`tap rounded-full border px-3 text-[13px] transition-colors ${
+                    off
+                      ? "border-warn/60 bg-warn/12 text-warn line-through"
+                      : "border-border bg-surface text-fg-muted hover:text-fg"
+                  }`}
+                >
+                  {g.label}
+                  <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">{g.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <p className="text-[12px] leading-snug text-fg-subtle">
-        難易度・評価が未入力の繋ぎは外しません。条件はこの端末に残り、リセットしても消えません。
+        難易度・評価・ジャンルが未入力のものは外しません。条件はこの端末に残り、リセットしても消えません。
       </p>
       <div className="flex gap-2">
         <button
