@@ -119,15 +119,17 @@ Vercel に置くなら、`web/` をルートにしてデプロイし、[`web/.en
 
 「状態」画面（`/health`）で、参照が壊れた繋ぎや要確認の行が分かる。
 
-### バックアップ（iCloud Drive）
+### バックアップ（iCloud Drive に同期）
 
 ```bash
-./.venv/bin/python tools/backup.py            # 1回とる
-./.venv/bin/python tools/backup.py --install  # 毎日 5:00 に自動でとる（--uninstall で止める）
+./.venv/bin/python tools/backup.py            # 1回同期する
+./.venv/bin/python tools/backup.py --install  # 毎日 5:00 に自動で同期する（--uninstall で止める）
 ```
 
-`iCloud Drive/rekordbox-backup/` に、ライブラリ（master.db・キュー・波形解析・設定）を日付ごとの世代で、
-曲ファイルを元の絶対パスの形で置く。rekordbox の起動中はスキップする。戻し方はスクリプト冒頭のコメント。
+Mac → `iCloud Drive/rekordbox-backup/` の片方向の同期。Mac が無くなっても戻せるよう、
+ライブラリ（master.db・キュー・プレイリスト・波形解析・設定）と、曲が入っているフォルダ（`~/Music/DJ_songs` など）を
+元の絶対パスの形のまま丸ごと置く。持つのは最新版と、ひとつ前の同期の分だけ。
+rekordbox の起動中はスキップする。戻し方はスクリプト冒頭のコメント。
 
 ## 設定ファイル
 
