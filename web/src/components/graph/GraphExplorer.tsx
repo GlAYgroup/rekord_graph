@@ -153,12 +153,22 @@ export function GraphExplorer({
     return edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
   }, [edges, visibleIds]);
 
-  /* 検索: 一致ノードを光らせる */
-  const matched = useMemo(() => {
-    const query = q.trim().toLowerCase();
-    if (!query) return null;
-    return new Set(nodes.filter((n) => n.name.toLowerCase().includes(query)).map((n) => n.id));
+  /*
+    検索: 一致した曲を**全部**候補に並べ、地図の上でも光らせる。
+    以前は光らせるだけで、Enter で「最初の1曲」に飛ぶしかなかった
+    （スマホでは他の一致が画面の外にあり、1曲しか探せないのと同じだった）。
+    空白で区切った語はすべて含むものだけ。全角半角・大小は揃えて比べる
+  */
+  const results = useMemo(() => {
+    const words = q.normalize("NFKC").toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length === 0) return null;
+    // 名前の頭から一致する曲を先に（「ベノム」で探して「ベノム」が一番上に来るように）
+    const head = (n: GNode) => (n.name.normalize("NFKC").toLowerCase().startsWith(words[0]) ? 0 : 1);
+    return nodes
+      .filter((n) => words.every((w) => n.search.includes(w)))
+      .sort((a, b) => head(a) - head(b) || a.name.localeCompare(b.name, "ja") || (a.id < b.id ? -1 : 1));
   }, [q, nodes]);
+  const matched = useMemo(() => (results ? new Set(results.map((n) => n.id)) : null), [results]);
 
   /* ホバー/選択時の近傍。それ以外は沈める（Obsidian の作法） */
   const focusId = hover ?? selected;
@@ -229,6 +239,12 @@ export function GraphExplorer({
 
   /** `id` を渡すと上書き、渡さないと「パターンN」を新規作成 */
   const savePattern = useCallback(async (id?: string) => {
+    /*
+      返事が届くまでに別のパターン（や自動）へ切り替えられたら、そちらの選択を残す。
+      保存した側へ選択だけ戻すと、画面は切り替え先の形のままなので、次のドラッグで
+      その形が保存した側のパターンに上書きされる（ボタンの点灯も嘘になる）
+    */
+    const startedOn = activeIdRef.current;
     setBusy(true); setSaveError(null);
     try {
       const name = (id && patternsRef.current.find((p) => p.id === id)?.name)
@@ -240,7 +256,7 @@ export function GraphExplorer({
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      adopt(data.patterns, data.pattern.id);
+      adopt(data.patterns, activeIdRef.current === startedOn ? data.pattern.id : activeIdRef.current);
     } catch {
       setSaveError("保存できませんでした");
     } finally {
@@ -271,7 +287,8 @@ export function GraphExplorer({
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      adopt(data.patterns, id);
+      // 名前を変えても開いているパターンは変わらない（待つ間に切り替えられていたら、そちらのまま）
+      adopt(data.patterns, activeIdRef.current);
       setRenaming(null);
     } catch {
       setSaveError("名前を変えられませんでした");
@@ -279,19 +296,6 @@ export function GraphExplorer({
       setBusy(false);
     }
   }, [adopt]);
-
-  const loadPattern = useCallback((id: string) => {
-    const p = patternsRef.current.find((x) => x.id === id);
-    if (!p) return;
-    setActiveId(id); activeIdRef.current = id;
-    applyPositions(p.positions);
-  }, [applyPositions]);
-
-  /** パターンを使わない自動配置に戻す（保存済みのパターンは消えない） */
-  const useAutoLayout = useCallback(() => {
-    setActiveId(null); activeIdRef.current = null;
-    applyPositions(null);
-  }, [applyPositions]);
 
   /**
    * 動かしたら勝手に残す。
@@ -311,7 +315,36 @@ export function GraphExplorer({
       setAutoSavedAt(Date.now());
     }, 1200);
   }, []);
-  useEffect(() => () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); }, []);
+  /**
+   * 待機中の自動保存を今すぐ送る。**パターンを切り替える前と、画面を離れるとき**に呼ぶ。
+   * 待たせたまま切り替えると、1.2秒後の保存が「切り替え先のパターン」に切り替え先の形を
+   * 書き（動かした分は元のパターンに残らない）、自動へ切り替えた場合は自動配置の形で
+   * 新しいパターンまで作っていた。離れるときは黙って捨てていた。
+   * 送る中身（形・保存先）は、呼んだ時点で組み立てられる（savePattern は await の前に読む）
+   */
+  const flushAutoSave = useCallback(() => {
+    if (!autoSaveTimer.current) return;
+    clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = null;
+    void savePatternRef.current(activeIdRef.current ?? undefined);
+  }, []);
+  useEffect(() => () => flushAutoSave(), [flushAutoSave]);
+
+  const loadPattern = useCallback((id: string) => {
+    const p = patternsRef.current.find((x) => x.id === id);
+    if (!p) return;
+    flushAutoSave();
+    setActiveId(id); activeIdRef.current = id;
+    applyPositions(p.positions);
+  }, [applyPositions, flushAutoSave]);
+
+  /** パターンを使わない自動配置に戻す（保存済みのパターンは消えない） */
+  const useAutoLayout = useCallback(() => {
+    flushAutoSave();
+    setActiveId(null); activeIdRef.current = null;
+    applyPositions(null);
+  }, [applyPositions, flushAutoSave]);
+
   // 本番に入った瞬間、待機中の保存も捨てる（直前に触ってしまった分を書かせない）
   useEffect(() => {
     performingRef.current = performing;
@@ -345,12 +378,19 @@ export function GraphExplorer({
   }, [applyPositions, adopt]);
 
   // 表示する範囲を切り替えたら、その範囲に合わせて画面に収め直す
-  // （未接続を出す / ルートだけに畳む で広さが大きく変わるため。形そのものは変えない）
+  // （未接続を出すと広さが大きく変わるため。形そのものは変えない）。
+  // ルート強調は色が変わるだけなので収め直さない（拡大していた所から戻されてしまう）
   const firstFitRef = useRef(true);
+  /** 検索で選んだ未接続の曲。出してから収め直すので、その**あと**で寄る */
+  const pendingCenterRef = useRef<string | null>(null);
   useEffect(() => {
     if (firstFitRef.current) { firstFitRef.current = false; return; }
     fitRef.current();
-  }, [showIsolated, routeMode]);
+    if (pendingCenterRef.current) {
+      centerOnRef.current(pendingCenterRef.current);
+      pendingCenterRef.current = null;
+    }
+  }, [showIsolated]);
 
   /* ---------- 前回の状態を復元する / 覚える ---------- */
   // 復元はマウント後に行う（初期値を変えると SSR と食い違ってハイドレーションが壊れる）
@@ -734,6 +774,23 @@ export function GraphExplorer({
   const sel = selected ? nodeById.get(selected) : null;
   const selPanel = selected ? panel[selected] : null;
 
+  /**
+   * 検索の候補から1曲選ぶ。選んだら検索は畳む（残すと、選んだ曲の隣まで
+   * 「一致しない」として沈んでしまう）。未接続で隠れている曲は、出してから寄る
+   */
+  const pickResult = (id: string) => {
+    setSelected(id);
+    setQ("");
+    if (!showIsolated && !connectedIds.has(id)) {
+      pendingCenterRef.current = id;
+      setShowIsolated(true);
+    } else {
+      centerOn(id);
+    }
+    // スマホのキーボードを閉じる（開いたままだと、寄った先が隠れる）
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  };
+
   return (
     <div
       ref={containerRef}
@@ -848,6 +905,15 @@ export function GraphExplorer({
             const r = radius(n.id);
             const isChain = chainOn && routeNodeSet.has(n.id); // 選んだ曲からの道筋は赤で通す
             const isRoute = !chainOn && glow && routeNodeSet.has(n.id); // off のときはどのノードも同じ色
+            /*
+              ルート強調の両端。琥珀一色だと、光った列のどちらから読めばいいかが分からない。
+              始点 = 黄緑 / 終点 = 朱（どちらも琥珀から色相を少しずらした色）。
+              ルートの一部だとは読めたまま、端だけを一段濃く・大きく浮かせる
+            */
+            const isRouteStart = isRoute && n.id === route.trackIds[0];
+            const isRouteEnd = isRoute && route.trackIds.length > 1 && n.id === route.trackIds[route.trackIds.length - 1];
+            const isRouteEdge = isRouteStart || isRouteEnd;
+            const routeColor = isRouteStart ? "var(--route-start)" : isRouteEnd ? "var(--route-end)" : "var(--hot)";
             const isSel = selected === n.id;
             const isMatch = matched?.has(n.id);
             const inMoveSet = moveSet.has(n.id);
@@ -882,7 +948,12 @@ export function GraphExplorer({
                   <circle r={r + 11} fill="none" stroke="var(--accent)" strokeWidth={2} opacity={0.9} />
                 )}
                 {isChain && <circle r={r + 3.5} fill="color-mix(in srgb, var(--route) 20%, transparent)" />}
-                {isRoute && <circle r={r + 3.5} fill="color-mix(in srgb, var(--hot) 14%, transparent)" />}
+                {isRoute && (
+                  <circle
+                    r={r + (isRouteEdge ? 5.5 : 3.5)}
+                    fill={`color-mix(in srgb, ${routeColor} ${isRouteEdge ? 24 : 14}%, transparent)`}
+                  />
+                )}
                 {/* 道筋（赤）・ルート（琥珀）と重ねない。同じ丸に2色の暈しが乗ると濁って読めなくなる */}
                 {isLinked && !isRoute && !isChain && (
                   <circle r={r + 3.5} fill="color-mix(in srgb, var(--accent) 16%, transparent)" />
@@ -891,18 +962,18 @@ export function GraphExplorer({
                   r={r}
                   fill={
                     isChain ? "color-mix(in srgb, var(--route) 32%, var(--elevated))"
-                      : isRoute ? "color-mix(in srgb, var(--hot) 30%, var(--elevated))"
+                      : isRoute ? `color-mix(in srgb, ${routeColor} ${isRouteEdge ? 45 : 30}%, var(--elevated))`
                       : isLinked ? "color-mix(in srgb, var(--accent) 26%, var(--elevated))"
                       : "var(--elevated)"
                   }
                   stroke={
                     isSel ? "var(--accent)"
                       : isChain ? "var(--route)"
-                      : isRoute ? "var(--hot)"
+                      : isRoute ? routeColor
                       : isLinked ? "var(--accent)"
                       : "var(--border-bright)"
                   }
-                  strokeWidth={isSel ? 2 : isLinked ? 1.8 : 1.2}
+                  strokeWidth={isSel ? 2 : isRouteEdge ? 2.2 : isLinked ? 1.8 : 1.2}
                 />
                 <text
                   textAnchor="middle"
@@ -976,13 +1047,49 @@ export function GraphExplorer({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter" || !matched) return;
-            const first = nodes.find((n) => matched.has(n.id));
-            if (first) { setSelected(first.id); centerOn(first.id); }
+            if (e.key === "Escape") { setQ(""); return; }
+            // Enter は候補の一番上（頭から一致する曲が先に来ている）
+            if (e.key === "Enter" && results?.[0]) pickResult(results[0].id);
           }}
           placeholder="グラフ内を検索"
+          inputMode="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          aria-label="グラフ内を検索"
           className="h-12 rounded-card border border-border bg-surface/90 px-3.5 text-[16px] outline-none backdrop-blur placeholder:text-fg-subtle focus:border-accent"
         />
+        {/*
+          検索の候補。一致した曲を全部並べる（曲名は刈らず折り返す・BPM を添える）。
+          地図は指を止めるために touch-none だが、ここは自分でスクロールできる箱なので縦に動かせる
+        */}
+        {results && (
+          <div className="max-h-[min(50vh,420px)] overflow-y-auto overscroll-contain rounded-card border border-border bg-surface/95 backdrop-blur">
+            <p className="label sticky top-0 border-b border-border bg-surface/95 px-3.5 py-2">
+              {results.length ? `${results.length}曲` : "見つかりません"}
+            </p>
+            {results.length > 0 && (
+              <ul className="divide-y divide-border">
+                {results.map((n) => (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      onClick={() => pickResult(n.id)}
+                      className="tap flex w-full items-center gap-2 px-3.5 py-2 text-left transition-colors hover:bg-elevated"
+                    >
+                      <span className="min-w-0 flex-1 text-[14px] break-words">{n.name}</span>
+                      {!connectedIds.has(n.id) && (
+                        <span className="shrink-0 whitespace-nowrap text-[11px] text-fg-subtle">未接続</span>
+                      )}
+                      <span className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+                        {n.bpm ?? "–"} BPM
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <div className={`${toolsOpen ? "flex" : "hidden"} flex-col gap-2 md:flex`}>
         <div className="flex flex-wrap gap-1.5">
           <button
@@ -992,7 +1099,7 @@ export function GraphExplorer({
                 ? "border-hot/60 bg-hot/15 text-hot"
                 : "border-border bg-surface/90 text-fg-muted hover:text-fg"
             }`}
-            title="全部出したまま、最長ルートだけ琥珀で光らせる"
+            title="全部出したまま、最長ルートだけ琥珀で光らせる（始点は黄緑・終点は朱）"
           >
             ルート強調
           </button>
@@ -1177,9 +1284,13 @@ export function GraphExplorer({
         ))}
       </div>
 
-      {/* ── 選択パネル ── */}
+      {/*
+        ── 選択パネル ──
+        PC ではズーム（右下・3段で下から 156px）と同じ列に立つので、その上で止める
+        （繋ぎの多い曲を選ぶと、パネルが伸びて ＋ − ⊡ を覆っていた）
+      */}
       {sel && selPanel && (
-        <aside className="absolute inset-x-0 bottom-0 max-h-[46%] overflow-y-auto rounded-t-2xl border-t border-border bg-surface/95 backdrop-blur-md md:inset-x-auto md:bottom-auto md:right-3 md:top-16 md:max-h-[calc(100%-110px)] md:w-[320px] md:rounded-card md:border">
+        <aside className="absolute inset-x-0 bottom-0 max-h-[46%] overflow-y-auto rounded-t-2xl border-t border-border bg-surface/95 backdrop-blur-md md:inset-x-auto md:bottom-auto md:right-3 md:top-16 md:max-h-[calc(100%-232px)] md:w-[320px] md:rounded-card md:border">
           <div className="sticky top-0 flex items-start gap-2 border-b border-border bg-surface/95 p-4 backdrop-blur">
             <div className="min-w-0 flex-1">
               <h2 className="text-[18px] font-bold leading-tight break-words">{sel.name}</h2>
@@ -1285,8 +1396,9 @@ export function GraphExplorer({
                           「編集」は入力画面をこの繋ぎで開く = どのキュー同士を結ぶかを付け替える口。
                         */}
                         <div data-edit className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-0.5">
-                          <RatingPicker id={t.id} value={t.rating} size="sm" className="ml-auto" />
-                          <PracticeToggle id={t.id} value={t.practice} />
+                          {/* 保存後に画面を取り直さない: 取り直すと地図が敷き直され、全体表示へ戻ってしまう */}
+                          <RatingPicker id={t.id} value={t.rating} size="sm" className="ml-auto" refresh={false} />
+                          <PracticeToggle id={t.id} value={t.practice} refresh={false} />
                           <Link
                             href={`/new?edit=${t.id}`}
                             className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[11.5px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
@@ -1305,13 +1417,17 @@ export function GraphExplorer({
         </aside>
       )}
 
-      {/* ── 左下: 凡例。本番中は「動かせる」と書かない（実際に動かないため） ── */}
-      <p className="label absolute bottom-3 left-3 hidden md:block">
+      {/*
+        ── 左下: 凡例。本番中は「動かせる」と書かない（実際に動かないため） ──
+        長いので右端まで伸びる。右下のズーム（幅 44px + 余白）の手前で折り返し、
+        指も素通しにする（上に重なっていて「全体を表示」が押せなかった）
+      */}
+      <p className="label pointer-events-none absolute bottom-3 left-3 right-[68px] hidden md:block">
         {performing ? (
-          <>本番中 · 曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ドラッグは地図の移動だけ（形は書き換わりません）</>
+          <>本番中 · 曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ルート強調 = 全体の最長ルートを琥珀（始点は黄緑・終点は朱） · ドラッグは地図の移動だけ（形は書き換わりません）</>
         ) : (
           <>
-            曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ルート強調 = 全体の最長ルートを琥珀 · ホバーで近傍 · クリックで詳細 ·
+            曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ルート強調 = 全体の最長ルートを琥珀（始点は黄緑・終点は朱） · ホバーで近傍 · クリックで詳細 ·
             ドラッグで移動 · ⌘/Shift+クリックで複数選択 · 背景を⌘/Shift+ドラッグで囲んで選択 · 選択枠の中はどこを掴んでも動く
           </>
         )}

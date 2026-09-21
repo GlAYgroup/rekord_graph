@@ -53,6 +53,8 @@ export default async function GraphPage({
     id: t.id,
     rbId: t.rekordboxId,
     name: t.name,
+    // 表示名だけだと、原題や別名（「脳漿」など）で探したときに引っかからない
+    search: `${t.name} ${t.alias} ${t.fullTitle}`.normalize("NFKC").toLowerCase(),
     bpm: t.bpm,
     musicalKey: t.musicalKey,
     out: g.outgoing.get(t.id)?.length ?? 0,

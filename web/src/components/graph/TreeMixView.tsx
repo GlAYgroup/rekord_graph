@@ -165,6 +165,9 @@ export function TreeMixView({
     }
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    // 図の上で始まっていない指（+/−/⊡・選択パネルのタップやスクロール）は数えない。
+    // 数えると前回の移動量（≒0）で「背景タップ」と読み、パネルを閉じてしまう
+    if (!pointers.current.has(e.pointerId)) return;
     pointers.current.delete(e.pointerId);
     if (pointers.current.size === 0) {
       if (movedRef.current < 6) {

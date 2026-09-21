@@ -27,6 +27,12 @@
   --warn: #ff6b81;
   --ok: #4ade80;
   --route: #ff453a;      /* 選んだ曲から繋がっていく道筋 = 赤。沈めた周囲から浮かせて追えるようにする */
+  /*
+   * ルート強調（最長ルート = 琥珀）の両端。琥珀一色だと、光った列のどちらが始まりかが読めない。
+   * 琥珀から色相を両側へ少しずらす: 始点 = 黄緑、終点 = 朱。黄緑 → 琥珀 → 朱 の順に流れて見える
+   */
+  --route-start: #b9e84a;
+  --route-end: #ff6a3d;
   --incoming: #b98bff;   /* 選んだ曲に入ってくる線 = 藤色。出ていく線（シアン）と向きを取り違えないため */
 
   --border: #212833;
@@ -61,6 +67,8 @@
   --color-warn: var(--warn);
   --color-ok: var(--ok);
   --color-route: var(--route);
+  --color-route-start: var(--route-start);
+  --color-route-end: var(--route-end);
   --color-incoming: var(--incoming);
   --color-border: var(--border);
   --color-border-bright: var(--border-bright);

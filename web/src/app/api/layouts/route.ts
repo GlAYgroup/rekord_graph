@@ -10,6 +10,9 @@ import { deletePattern, listPatterns, renamePattern, savePattern } from "@/lib/p
 // 保存した直後に一覧を読み直すので、キャッシュさせない
 export const dynamic = "force-dynamic";
 
+/** ID が 🗺️Layouts の行を指していない（他の DB の行・捨てた行・知らない ID）。何も書いていない */
+const notLayout = () => Response.json({ error: "その配置パターンは見つかりません" }, { status: 404 });
+
 export async function GET() {
   return Response.json({ patterns: await listPatterns() });
 }
@@ -23,6 +26,7 @@ export async function POST(request: Request) {
   }
   const id = typeof body?.id === "string" ? body.id : undefined;
   const pattern = await savePattern(name, positions, id);
+  if (!pattern) return notLayout();
   return Response.json({ pattern, patterns: await listPatterns() });
 }
 
@@ -35,12 +39,13 @@ export async function PATCH(request: Request) {
     return Response.json({ error: "id と name が要ります" }, { status: 400 });
   }
   const pattern = await renamePattern(id, name);
+  if (!pattern) return notLayout();
   return Response.json({ pattern, patterns: await listPatterns() });
 }
 
 export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return Response.json({ error: "id が要ります" }, { status: 400 });
-  await deletePattern(id);
+  if (!(await deletePattern(id))) return notLayout();
   return Response.json({ patterns: await listPatterns() });
 }

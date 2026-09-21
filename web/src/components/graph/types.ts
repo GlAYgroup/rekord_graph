@@ -5,6 +5,8 @@ export type GNode = {
   /** rekordbox の ContentID。配置パターンの保存キー（Notion を作り直しても残る） */
   rbId: string;
   name: string;
+  /** 検索用。表示名・別名・原題をつないで NFKC＋小文字にしたもの（曲一覧の検索と同じ範囲） */
+  search: string;
   bpm: number | null;
   musicalKey: string;
   out: number;

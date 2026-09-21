@@ -60,6 +60,21 @@ export async function listPatterns(): Promise<Pattern[]> {
   return res.results.map(toPattern);
 }
 
+/** Notion の ID はダッシュの有無・大文字小文字が揺れるので、揃えてから比べる */
+const normId = (id: string) => id.replace(/-/g, "").toLowerCase();
+
+/**
+ * `id` が 🗺️Layouts の（捨てていない）行か。**ID で書く前に必ず通す。**
+ * ID はリクエストから来るので、確かめないと 🔀Transitions の行でも名前の上書きや
+ * アーカイブができてしまう。読めない ID も「違う」に倒す（確かめられないものには書かない）。
+ */
+async function isLayoutPage(id: string): Promise<boolean> {
+  const page = await request<{ parent?: { database_id?: string }; archived?: boolean }>(
+    `/pages/${id}`, { fresh: true },
+  ).catch(() => null);
+  return !!page && !page.archived && normId(page.parent?.database_id ?? "") === normId(DB.layouts);
+}
+
 function properties(name: string, positions: Pattern["positions"]) {
   const blob = encode(positions);
   const chunks: string[] = [];
@@ -71,12 +86,13 @@ function properties(name: string, positions: Pattern["positions"]) {
   };
 }
 
-/** `id` を渡せば上書き、渡さなければ新規作成。 */
+/** `id` を渡せば上書き、渡さなければ新規作成。`id` が 🗺️Layouts の行でなければ何も書かず null */
 export async function savePattern(
   name: string,
   positions: Pattern["positions"],
   id?: string,
-): Promise<Pattern> {
+): Promise<Pattern | null> {
+  if (id && !(await isLayoutPage(id))) return null;
   const props = properties(name, positions);
   const page = id
     ? await request<NotionPage>(`/pages/${id}`, { method: "PATCH", body: { properties: props }, fresh: true })
@@ -91,8 +107,10 @@ export async function savePattern(
 /**
  * 名前だけを変える。**配置には触らない**（`savePattern` は全列を書くので、
  * そちらで名前を変えると、画面に出ている途中の形で座標まで上書きしてしまう）。
+ * `id` が 🗺️Layouts の行でなければ何も書かず null。
  */
-export async function renamePattern(id: string, name: string): Promise<Pattern> {
+export async function renamePattern(id: string, name: string): Promise<Pattern | null> {
+  if (!(await isLayoutPage(id))) return null;
   const page = await request<NotionPage>(`/pages/${id}`, {
     method: "PATCH",
     body: { properties: { 名前: { title: [{ type: "text", text: { content: name.slice(0, 100) } }] } } },
@@ -101,7 +119,12 @@ export async function renamePattern(id: string, name: string): Promise<Pattern> 
   return toPattern(page);
 }
 
-/** Notion の作法に合わせてアーカイブする（完全削除はしない。戻せる方が安全） */
-export async function deletePattern(id: string): Promise<void> {
+/**
+ * Notion の作法に合わせてアーカイブする（完全削除はしない。戻せる方が安全）。
+ * `id` が 🗺️Layouts の行でなければ何もせず false。
+ */
+export async function deletePattern(id: string): Promise<boolean> {
+  if (!(await isLayoutPage(id))) return false;
   await request(`/pages/${id}`, { method: "PATCH", body: { archived: true }, fresh: true });
+  return true;
 }
