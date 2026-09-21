@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CuePad, LoopTag } from "@/components/CuePad";
-import { getGraph, type Graph, type Transition } from "@/lib/graph";
+import { showsLoop } from "@/lib/format";
+import { getGraph, type Cue, type Graph, type Transition } from "@/lib/graph";
 
 export const metadata = { title: "チェーン | rekord_graph" };
 
@@ -67,43 +68,53 @@ const Bpm = ({ value }: { value: number | null }) => (
   </span>
 );
 
+/**
+ * キュー1つ = パッド＋キュー名。ループの札はキュー名の**すぐ後ろ**に置く
+ * （列の端へ離すと、どのキューの札なのかが読めない）。
+ * キュー名は刈らない（キュー名が正。`助走 1サビ…` では別のキューと見分けられない）。長ければ折り返す
+ */
+function CueCell({ cue }: { cue: Cue | undefined }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <CuePad cue={cue} size="sm" />
+      <span className="min-w-0 break-words text-[13px] text-fg-muted">
+        {cue?.name}
+        {cue && showsLoop(cue) && <>{" "}<LoopTag cue={cue} /></>}
+      </span>
+    </span>
+  );
+}
+
 function Row({ g, t, branch }: { g: Graph; t: Transition; branch?: boolean }) {
   const from = g.trackById.get(t.fromTrackId);
   const to = g.trackById.get(t.toTrackId);
   return (
     <li className={branch ? "border-l-2 border-dashed border-hot/40 bg-hot/[0.03] p-3 pl-4" : "p-3"}>
-      <div className="flex items-center gap-2 text-[15px]">
-        {branch && (
-          <span className="shrink-0 rounded border border-hot/35 px-1.5 py-0.5 text-[10px] tracking-wide text-hot">
-            分岐
-          </span>
-        )}
+      {branch && (
+        <span className="mb-1.5 inline-block rounded border border-hot/35 px-1.5 py-0.5 text-[10px] tracking-wide text-hot">
+          分岐
+        </span>
+      )}
+      {/*
+        曲名の行とキューの行を同じ3列（From | → | To）に載せる。別々の行で並べていたときは、
+        曲名の長さで「→」の位置が行ごとにずれ、どの曲のどのキューかが読みにくかった
+      */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-2 gap-y-2">
         {/* 曲名には BPM を添える。流れを読み返すとき、どこでテンポが動いたかが要る */}
-        <Link href={`/track/${t.fromTrackId}`} className="min-w-0 break-words hover:text-accent">
+        <Link href={`/track/${t.fromTrackId}`} className="min-w-0 break-words text-[15px] hover:text-accent">
           {from?.name ?? "?"}
           <Bpm value={from?.bpm ?? null} />
         </Link>
-        <span className="shrink-0 text-fg-subtle">→</span>
-        <Link href={`/track/${t.toTrackId}`} className="min-w-0 break-words hover:text-accent">
+        <span className="text-fg-subtle">→</span>
+        <Link href={`/track/${t.toTrackId}`} className="min-w-0 break-words text-[15px] hover:text-accent">
           {to?.name ?? "?"}
           <Bpm value={to?.bpm ?? null} />
         </Link>
+        <CueCell cue={g.cueById.get(t.fromCueId)} />
+        <span className="text-[12px] text-fg-subtle">→</span>
+        <CueCell cue={g.cueById.get(t.toCueId)} />
       </div>
-      <div className="mt-2 flex items-center gap-2">
-        <CuePad cue={g.cueById.get(t.fromCueId)} size="sm" />
-        {/* キュー名は刈らない（キュー名が正。`助走 1サビ…` では別のキューと見分けられない）。長ければ折り返す */}
-        <span className="min-w-0 flex-1 break-words text-[13px] text-fg-muted">
-          {g.cueById.get(t.fromCueId)?.name}
-        </span>
-        <LoopTag cue={g.cueById.get(t.fromCueId)} />
-        <span className="shrink-0 text-[12px] text-fg-subtle">→</span>
-        <CuePad cue={g.cueById.get(t.toCueId)} size="sm" />
-        <span className="min-w-0 flex-1 break-words text-[13px] text-fg-muted">
-          {g.cueById.get(t.toCueId)?.name}
-        </span>
-        <LoopTag cue={g.cueById.get(t.toCueId)} />
-      </div>
-      {t.comment && <p className="mt-1.5 text-[13px] text-fg-subtle">{t.comment}</p>}
+      {t.comment && <p className="mt-1.5 break-words text-[13px] text-fg-subtle">{t.comment}</p>}
     </li>
   );
 }
@@ -140,7 +151,9 @@ export default async function ChainPage() {
               ? { main: [...list].sort((a, b) => b.createdTime.localeCompare(a.createdTime)), branches: [] }
               : orderChain(list);
             return (
-              <section key={name} className="mb-6 break-inside-avoid rise" style={{ animationDelay: `${ci * 50}ms` }}>
+              // 未分類（100本超）は段をまたいで流す。1段に押し込むと、PC では隣の段が
+              // 1万px 以上空いたままになっていた
+              <section key={name} className={`mb-6 rise ${unsorted ? "" : "break-inside-avoid"}`} style={{ animationDelay: `${ci * 50}ms` }}>
                 <h2 className="label mb-1">{name.replace(/^chain/i, "チェーン ")} · {list.length}本</h2>
                 <p className="mb-2 break-words text-[12.5px] text-fg-muted" title={unsorted ? undefined : chainTitle(g, main)}>
                   {unsorted ? "チェーン名の無い繋ぎ（新しい順）" : chainTitle(g, main)}

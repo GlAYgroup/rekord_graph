@@ -75,7 +75,8 @@ export function TrackSearch({ tracks }: { tracks: SearchTrack[] }) {
           <li key={t.id}>
             <Link
               href={`/track/${t.id}`}
-              className="group block rounded-card border border-border bg-linear-to-b from-surface to-surface-2 p-3.5 transition-colors hover:border-border-bright active:border-accent/50 rise"
+              // h-full: 2〜3列のとき、同じ行のカードの高さを揃える（li だけ伸びて、下端がばらばらだった）
+              className="group block h-full rounded-card border border-border bg-linear-to-b from-surface to-surface-2 p-3.5 transition-colors hover:border-border-bright active:border-accent/50 rise"
               style={{ animationDelay: `${Math.min(i, 12) * 25}ms`, boxShadow: "var(--shadow-card)" }}
             >
               <div className="flex items-baseline gap-2">

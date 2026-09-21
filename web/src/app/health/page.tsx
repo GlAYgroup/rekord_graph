@@ -83,7 +83,7 @@ export default async function HealthPage() {
 
         <p className="mt-8 rounded-card border border-border bg-surface p-4 text-[13px] text-fg-muted leading-relaxed">
           rekordbox でキューを触ったら、手元で
-          <code className="mx-1 rounded bg-elevated px-1.5 py-0.5 font-mono text-[12px]">
+          <code className="mx-1 whitespace-nowrap rounded bg-elevated px-1.5 py-0.5 font-mono text-[12px]">
             python tools/sync.py
           </code>
           を流すと、差分を1件ずつ確認しながら Notion に反映できます。

@@ -316,10 +316,46 @@ export function PlayDeck({
               >
                 <button
                   onClick={() => setSteps((p) => [...p, { trackId: t.toTrackId, viaTransitionId: t.id }])}
-                  className="flex w-full gap-3 rounded-card p-3 text-left sm:gap-4 sm:p-4"
+                  className="flex w-full flex-col gap-2.5 rounded-card p-3 text-left sm:flex-row sm:gap-4 sm:p-4"
                 >
-                  {/* ── 左: どのキューからどのキューへ・どう繋ぐか（全文） ── */}
-                  <div className="min-w-0 flex-1 space-y-2">
+                  {/*
+                    ── 行き先の曲名チップ。押す対象はカード全体だが、目印はここ ──
+                    スマホではカードの一番上に全幅で置き、BPM・テンポ・この先N曲はその下の行へ。
+                    右の細い列（112px）に入れていたときは、曲名が「ドーナツホー / ル」と語の途中で割れ、
+                    長いものは4行になっていた。sm 以上は今まで通り右の列
+                  */}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:order-last sm:w-[190px] sm:shrink-0 sm:flex-col sm:flex-nowrap sm:items-end">
+                    <span className="min-w-0 basis-full rounded-card border border-accent/45 bg-accent/10 px-2.5 py-1.5 text-left text-[15px] font-semibold leading-snug break-words text-accent sm:w-full sm:basis-auto sm:text-right">
+                      {to?.name ?? "不明な曲"}
+                    </span>
+                    <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+                      {to?.bpm ?? "–"} {to?.musicalKey}
+                    </span>
+                    <TempoBadge from={current.bpm} to={to?.bpm ?? null} />
+                    <span
+                      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] tabular-nums ${
+                        n.count > 1
+                          ? "border-hot/35 bg-hot/10 text-hot"
+                          : "border-border text-fg-subtle"
+                      }`}
+                      title="まだかけていない曲（リミックス違いも別の曲として数えない）だけで数えた「この先つなげる曲数」"
+                    >
+                      {/* 打ち切ったときの数は下限なので「以上」と断る（多い方に嘘をつかない） */}
+                      {n.count > 1
+                        ? `この先${n.count}曲${n.truncated ? "以上" : ""}`
+                        : "行き止まり"}
+                    </span>
+                    {/* 本番中はトグルを出さないので、印だけここに出す。
+                        下見中は下の帯のトグルが同じことを言うので重ねない */}
+                    {t.practice && performing && (
+                      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10.5px] text-warn">
+                        要練習
+                      </span>
+                    )}
+                  </div>
+
+                  {/* ── どのキューからどのキューへ・どう繋ぐか（全文） ── */}
+                  <div className="min-w-0 space-y-2 sm:flex-1">
                     <CueLine cue={fromCue} size="sm" />
                     <TrackTimeline
                       durationSec={current.durationSec}
@@ -360,37 +396,6 @@ export function PlayDeck({
                           </p>
                         )}
                       </div>
-                    )}
-                  </div>
-
-                  {/* ── 右: 行き先の曲名チップ。押す対象はカード全体だが、目印はここ ── */}
-                  <div className="flex w-[112px] shrink-0 flex-col items-end gap-1.5 sm:w-[190px]">
-                    <span className="w-full rounded-card border border-accent/45 bg-accent/10 px-2.5 py-1.5 text-right text-[13.5px] font-semibold leading-snug break-words text-accent sm:text-[15px]">
-                      {to?.name ?? "不明な曲"}
-                    </span>
-                    <span className="font-mono text-[11px] tabular-nums text-fg-subtle">
-                      {to?.bpm ?? "–"} {to?.musicalKey}
-                    </span>
-                    <TempoBadge from={current.bpm} to={to?.bpm ?? null} />
-                    <span
-                      className={`rounded border px-1.5 py-0.5 text-[11px] tabular-nums ${
-                        n.count > 1
-                          ? "border-hot/35 bg-hot/10 text-hot"
-                          : "border-border text-fg-subtle"
-                      }`}
-                      title="まだかけていない曲（リミックス違いも別の曲として数えない）だけで数えた「この先つなげる曲数」"
-                    >
-                      {/* 打ち切ったときの数は下限なので「以上」と断る（多い方に嘘をつかない） */}
-                      {n.count > 1
-                        ? `この先${n.count}曲${n.truncated ? "以上" : ""}`
-                        : "行き止まり"}
-                    </span>
-                    {/* 本番中はトグルを出さないので、印だけここに出す。
-                        下見中は下の帯のトグルが同じことを言うので重ねない */}
-                    {t.practice && performing && (
-                      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10.5px] text-warn">
-                        要練習
-                      </span>
                     )}
                   </div>
                 </button>

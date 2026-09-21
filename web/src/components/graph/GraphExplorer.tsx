@@ -306,14 +306,19 @@ export function GraphExplorer({
   savePatternRef.current = savePattern;
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [autoSavedAt, setAutoSavedAt] = useState(0);
+  /** 開いたあとで配置パターンを Notion から取り直し終えたか（下の「取り直し」を参照） */
+  const layoutsFreshRef = useRef(false);
   const scheduleAutoSave = useCallback(() => {
     if (performingRef.current) return; // 本番中は動かしても保存しない
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     // 連続でドラッグしている間は書かない。手が止まってから1回だけ
-    autoSaveTimer.current = setTimeout(async () => {
+    const fire = async () => {
+      // 取り直す前の（古いかもしれない）形では書かない。届くまで待つ
+      if (!layoutsFreshRef.current) { autoSaveTimer.current = setTimeout(fire, 400); return; }
       await savePatternRef.current(activeIdRef.current ?? undefined);
       setAutoSavedAt(Date.now());
-    }, 1200);
+    };
+    autoSaveTimer.current = setTimeout(fire, 1200);
   }, []);
   /**
    * 待機中の自動保存を今すぐ送る。**パターンを切り替える前と、画面を離れるとき**に呼ぶ。
@@ -326,6 +331,7 @@ export function GraphExplorer({
     if (!autoSaveTimer.current) return;
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = null;
+    if (!layoutsFreshRef.current) return; // 取り直す前の形は書かない（古い画面データかもしれない）
     void savePatternRef.current(activeIdRef.current ?? undefined);
   }, []);
   useEffect(() => () => flushAutoSave(), [flushAutoSave]);
@@ -359,6 +365,38 @@ export function GraphExplorer({
   loadPatternRef.current = loadPattern;
   const useAutoLayoutRef = useRef(useAutoLayout);
   useAutoLayoutRef.current = useAutoLayout;
+
+  /*
+    取り直し: 配置パターンは開いたあとで Notion から読み直す。
+    **戻る/進むで開いたとき、Next は前に描いた画面データ（古いパターン）を使い回す**ので、
+    古い形のまま1曲動かすと、自動保存がその古い形で新しい形を上書きしてしまう
+    （手で整えた形が消えるのが一番困る）。開いているパターンの形が変わっていたら敷き直し、
+    それまでは自動保存を待たせる。読み直せなかったときは、今まで通り手元の形で続ける
+  */
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/layouts", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+      .then((data: { patterns: GPattern[] }) => {
+        if (!alive) return;
+        const active = activeIdRef.current;
+        const before = patternsRef.current.find((p) => p.id === active);
+        const after = active ? data.patterns.find((p) => p.id === active) : undefined;
+        const stale = active ? !after || JSON.stringify(after.positions) !== JSON.stringify(before?.positions) : false;
+        if (stale && autoSaveTimer.current) {
+          // 古い形の上で動かした分は保存しない（新しい形で置き換える）
+          clearTimeout(autoSaveTimer.current);
+          autoSaveTimer.current = null;
+        }
+        // 開いていたパターンが他の端末で消されていたら、自動配置に戻す（消えた行へ書かせない）
+        adopt(data.patterns, active && !after ? null : active);
+        if (stale) applyPositions(after?.positions ?? null);
+      })
+      .catch(() => { /* 読み直せなくても、手元の形で続ける */ })
+      .finally(() => { if (alive) layoutsFreshRef.current = true; });
+    return () => { alive = false; };
+    // 実質は開いたときに1回だけ（adopt は不変、applyPositions は曲の増減でしか変わらない）
+  }, [adopt, applyPositions]);
 
   const removePattern = useCallback(async (id: string) => {
     const p = patternsRef.current.find((x) => x.id === id);
@@ -1398,14 +1436,20 @@ export function GraphExplorer({
                         <div data-edit className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-0.5">
                           {/* 保存後に画面を取り直さない: 取り直すと地図が敷き直され、全体表示へ戻ってしまう */}
                           <RatingPicker id={t.id} value={t.rating} size="sm" className="ml-auto" refresh={false} />
-                          <PracticeToggle id={t.id} value={t.practice} refresh={false} />
-                          <Link
-                            href={`/new?edit=${t.id}`}
-                            className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[11.5px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
-                            title="この繋ぎのキュー・種類・コメントを直す"
-                          >
-                            編集
-                          </Link>
+                          {/*
+                            要練習と編集はひとまとめ。PC のパネル（320px）では星と同じ行に収まらず、
+                            ばらばらに折り返すと「編集」だけが次の行の左端に落ちていた → 次の行の右端へ
+                          */}
+                          <span className="flex items-center gap-2 md:ml-auto">
+                            <PracticeToggle id={t.id} value={t.practice} refresh={false} />
+                            <Link
+                              href={`/new?edit=${t.id}`}
+                              className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[11.5px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+                              title="この繋ぎのキュー・種類・コメントを直す"
+                            >
+                              編集
+                            </Link>
+                          </span>
                         </div>
                       </li>
                     ))}
@@ -1420,9 +1464,10 @@ export function GraphExplorer({
       {/*
         ── 左下: 凡例。本番中は「動かせる」と書かない（実際に動かないため） ──
         長いので右端まで伸びる。右下のズーム（幅 44px + 余白）の手前で折り返し、
-        指も素通しにする（上に重なっていて「全体を表示」が押せなかった）
+        指も素通しにする（上に重なっていて「全体を表示」が押せなかった）。
+        地図の曲名と重なっても読めるよう、薄い下地を敷く
       */}
-      <p className="label pointer-events-none absolute bottom-3 left-3 right-[68px] hidden md:block">
+      <p className="label pointer-events-none absolute bottom-3 left-3 right-[68px] hidden rounded-card bg-bg/80 px-2.5 py-1.5 backdrop-blur md:block">
         {performing ? (
           <>本番中 · 曲を選ぶとそこからの道筋を赤で出す · 出ていく線はシアン / 入ってくる線は藤色 · ルート強調 = 全体の最長ルートを琥珀（始点は黄緑・終点は朱） · ドラッグは地図の移動だけ（形は書き換わりません）</>
         ) : (

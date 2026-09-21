@@ -308,6 +308,14 @@ export function TreeMixView({
             ツリー
           </span>
         </div>
+        {/*
+          今の起点は入力欄の外に、折り返せる文字で出す。入力欄の placeholder に入れていたときは
+          「起点: ハッピーシンセサイザ (HISAS」で切れていた（入力欄は折り返せない）
+        */}
+        <p className="rounded-card border border-border bg-surface/90 px-3.5 py-2 text-[13px] leading-snug break-words backdrop-blur">
+          <span className="label mr-1.5">起点</span>
+          {rootName}
+        </p>
         <div className="relative">
           <input
             value={rootQ}
@@ -320,7 +328,7 @@ export function TreeMixView({
               }
               if (e.key === "Escape") setPickerOpen(false);
             }}
-            placeholder={`起点: ${rootName}`}
+            placeholder="起点を変える（曲名で検索）"
             aria-label="ツリーの起点を選ぶ"
             className="h-12 w-full rounded-card border border-border bg-surface/90 px-3.5 text-[16px] outline-none backdrop-blur placeholder:text-fg-muted focus:border-hot"
           />
