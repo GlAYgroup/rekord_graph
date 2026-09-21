@@ -7,6 +7,7 @@ import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
+import { minutesLabel, setLength, type SetLength } from "@/lib/duration";
 import { barsLabel, bpmDelta, cueLabel, genreKey } from "@/lib/format";
 import { DIFFICULTIES, DIFFICULTY_LABEL, difficultyRank, type Difficulty } from "@/lib/difficulty";
 import {
@@ -55,7 +56,7 @@ import type { Cue, Track, Transition } from "@/lib/types";
  */
 
 export function PlayDeck({
-  tracks, cues, transitions, maxFrom, initialTrackId,
+  tracks, cues, transitions, maxFrom, maxLength, initialTrackId,
 }: {
   tracks: Track[];
   cues: Cue[];
@@ -65,6 +66,8 @@ export function PlayDeck({
    * 繋ぎのカードに出す数は、かけた曲を外して端末で数え直す
    */
   maxFrom: Record<string, number>;
+  /** `maxFrom` と同じ道筋で、何分のセットになるか（全長とカット後）。曲を選ぶ一覧に出す */
+  maxLength: Record<string, SetLength>;
   initialTrackId: string | null;
 }) {
   const { on: performing } = usePerformance();
@@ -99,6 +102,12 @@ export function PlayDeck({
 
   const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
   const cueById = useMemo(() => new Map(cues.map((c) => [c.id, c])), [cues]);
+  /** 何分のセットになるかを数えるための引き口（`lib/duration.ts`） */
+  const lengthLookup = useMemo(() => ({
+    durationSec: (id: string) => trackById.get(id)?.durationSec ?? null,
+    bpm: (id: string) => trackById.get(id)?.bpm ?? null,
+    cueMs: (id: string) => cueById.get(id)?.positionMs ?? null,
+  }), [trackById, cueById]);
   const cuesByTrack = useMemo(() => {
     const m = new Map<string, Cue[]>();
     for (const c of cues) {
@@ -265,19 +274,37 @@ export function PlayDeck({
         (a.to?.name ?? "").localeCompare(b.to?.name ?? "", "ja") ||
         a.transition.id.localeCompare(b.transition.id),
     );
-    return list;
+    // この繋ぎで入ってから、先の一番長い道筋を最後まで流すと何分か（入った位置から数える）
+    return list.map((row) => ({
+      ...row,
+      length: setLength(row.onward.trackIds, row.onward.edges, lengthLookup, row.transition),
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById]);
+  }, [current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById, lengthLookup]);
 
   /** 今の曲から先、あと何曲つなげるか（今の曲を含む）。今の曲の songId は起点なので外す */
-  const remaining = current
+  const ahead = current
     ? maxOnwardFrom(
         usable,
         songOf,
         current.id,
         new Set([...usedSongs].filter((s) => s !== songOf(current.id))),
-      ).count
-    : 0;
+      )
+    : null;
+  const remaining = ahead?.count ?? 0;
+  /**
+   * 今の曲から、その道筋を最後まで流すと何分か。今の曲は**入った位置から**数える
+   * （どこまで流したかは端末に分からないので、今の曲の分は丸ごと入る）
+   */
+  const viaId = steps[steps.length - 1]?.viaTransitionId ?? null;
+  const aheadLength = ahead
+    ? setLength(
+        ahead.trackIds,
+        ahead.edges,
+        lengthLookup,
+        viaId ? transitions.find((t) => t.id === viaId) ?? null : null,
+      )
+    : null;
 
   // かけてきた順は右端（最新）を見せる。横スクロールの箱は左端から始まるので、
   // スマホでは2〜3曲で最新側と「→ 今」が画面の外に切れていた
@@ -294,6 +321,7 @@ export function PlayDeck({
       <StartPicker
         tracks={tracks}
         maxFrom={maxFrom}
+        maxLength={maxLength}
         usedSongs={usedSongs}
         playedIds={new Set(path)}
         filtering={filtering}
@@ -413,8 +441,14 @@ export function PlayDeck({
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 text-[12px] text-fg-subtle">
           <span>かけた {path.length}曲</span>
           <span className={remaining > 1 ? "text-hot" : ""}>
-            {remaining > 1 ? `この先 最大${remaining}曲` : "行き止まり"}
+            {/* 探索を打ち切ったときの数は下限（カードの「◯曲以上」と同じ断り方） */}
+            {remaining > 1 ? `この先 最大${remaining}曲${ahead?.truncated ? "以上" : ""}` : "行き止まり"}
           </span>
+          {aheadLength && (
+            <span title="今の曲（入った位置から）を含めて、この先の一番長い道筋を最後まで流した長さ。括弧は曲を頭から最後まで流した場合">
+              残り{minutesLabel(aheadLength.cutSec)}（全長{minutesLabel(aheadLength.fullSec).replace("約", "")}）
+            </span>
+          )}
           {hiddenPlayed > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hiddenPlayed}</span>}
           {hiddenFiltered > 0 && <span className="text-warn">条件で外した繋ぎ {hiddenFiltered}</span>}
           <button
@@ -459,7 +493,7 @@ export function PlayDeck({
         </p>
       ) : (
         <ul className="mt-3 space-y-2.5">
-          {rows.map(({ transition: t, to, onward: n }) => {
+          {rows.map(({ transition: t, to, onward: n, length }) => {
             const fromCue = cueById.get(t.fromCueId);
             const toCue = cueById.get(t.toCueId);
             return (
@@ -498,7 +532,7 @@ export function PlayDeck({
                     >
                       {/* 打ち切ったときの数は下限なので「以上」と断る（多い方に嘘をつかない） */}
                       {n.count > 1
-                        ? `この先${n.count}曲${n.truncated ? "以上" : ""}`
+                        ? `この先${n.count}曲${n.truncated ? "以上" : ""}・${minutesLabel(length.cutSec)}`
                         : "行き止まり"}
                     </span>
                     {/* 本番中はトグルを出さないので、印だけここに出す。
@@ -643,10 +677,11 @@ export function PlayDeck({
  * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
  */
 function StartPicker({
-  tracks, maxFrom, usedSongs, playedIds, filtering, mode, onPick, onCancel,
+  tracks, maxFrom, maxLength, usedSongs, playedIds, filtering, mode, onPick, onCancel,
 }: {
   tracks: Track[];
   maxFrom: Record<string, number>;
+  maxLength: Record<string, SetLength>;
   /** すでにかけた曲（songId。リミックス違いも含む）。外しはしないが、印を付けて後ろに回す */
   usedSongs: ReadonlySet<string>;
   /** かけた曲そのもの（曲ID）。印を「かけた」と「別版をかけた」で分けるためだけに使う */
@@ -695,7 +730,8 @@ function StartPicker({
           ? "繋ぎが記録されていない曲へも移れます。選ぶと、繋いだ曲として続きから並びます。"
           : "選ぶとここから繋げる先が並びます。長くつなげる曲が上です。"}
         {/* 全曲ぶんを条件つきで数え直すと重いので、ここの数だけは条件を入れる前の数 */}
-        {filtering && " 右の「最大◯曲」は除外条件を入れる前の数です。"}
+        {" 右の「◯分/◯分」は、一番長い道筋を繋ぎで切って流した長さ／曲を最後まで流した全長です。"}
+        {filtering && " 右の数は除外条件を入れる前のものです。"}
       </p>
       {/* リセットの直後に立つのがこの画面なので、**曲の一覧より上に**履歴の入口を置く
           （84曲の下に置くと、前のセットを見返したい人には届かない） */}
@@ -735,10 +771,17 @@ function StartPicker({
                 右の数字は幅を決めて右に揃え、2段に積む。横に並べていたときは中身で幅が変わり、
                 行ごとに右端がずれたうえ、曲名が 120px 前後に押し込まれて3〜4行に割れていた
               */}
-              <span className="flex w-[4.5rem] shrink-0 flex-col items-end gap-0.5 whitespace-nowrap text-right font-mono text-[11px] tabular-nums">
+              <span className="flex w-[5.5rem] shrink-0 flex-col items-end gap-0.5 whitespace-nowrap text-right font-mono text-[11px] tabular-nums">
                 <span className={(maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"}>
                   {(maxFrom[t.id] ?? 1) > 1 ? `最大${maxFrom[t.id]}曲` : "行き止まり"}
                 </span>
+                {/* その道筋を流したら何分か。上がカット後、下が曲を頭から最後まで流した全長 */}
+                {(maxFrom[t.id] ?? 1) > 1 && maxLength[t.id] && (
+                  <span className="text-fg-muted" title="繋ぎで切った長さ（全長 = 曲を頭から最後まで流した場合）">
+                    {minutesLabel(maxLength[t.id].cutSec).replace("約", "")}
+                    <span className="text-fg-subtle">/{minutesLabel(maxLength[t.id].fullSec).replace("約", "")}</span>
+                  </span>
+                )}
                 <span className="text-fg-subtle">
                   {t.bpm ?? "–"} {t.musicalKey}
                 </span>

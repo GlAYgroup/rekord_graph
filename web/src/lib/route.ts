@@ -88,14 +88,15 @@ export function longestRouteFrom(g: Graph, startId: string): Route {
  * 走るので打ち切りは浅い。`truncated` が立っていれば出た数は下限。
  * `blockedSongs` は曲ID ではなく songId（使った曲のリミックス違いも外すため）。
  */
-export function maxOnwardFrom(
-  outgoing: ReadonlyMap<string, readonly Step[]>,
+export function maxOnwardFrom<E extends Step>(
+  outgoing: ReadonlyMap<string, readonly E[]>,
   songOf: SongOf,
   startId: string,
   blockedSongs: ReadonlySet<string>,
-): { count: number; truncated: boolean } {
+): { count: number; truncated: boolean; trackIds: string[]; edges: E[] } {
+  // 道筋も返す（何分のセットになるかを `lib/duration.ts` が数えるため）
   const r = walkLongest(outgoing, songOf, startId, blockedSongs, CLIENT_MAX_STEPS);
-  return { count: r.trackIds.length, truncated: r.truncated };
+  return { count: r.trackIds.length, truncated: r.truncated, trackIds: r.trackIds, edges: r.edges };
 }
 
 /** ライブラリ全体で最も長く繋げられる経路。 */
