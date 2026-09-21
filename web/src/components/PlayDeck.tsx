@@ -76,6 +76,11 @@ export function PlayDeck({
   const [picking, setPicking] = useState(false);
   /** リセットは2タップ。暗所で片手でも誤爆しないように、押してから確かめる */
   const [confirmReset, setConfirmReset] = useState(false);
+  /**
+   * かけてきた順で押した曲（「本当に戻りますか？」を出している間だけ）。押した時点の曲数も控え、
+   * その後に進んだり「戻す」を押したりしたら確認は取り下げる（ずれた位置で戻らせない）
+   */
+  const [confirmBack, setConfirmBack] = useState<{ index: number; length: number } | null>(null);
 
   const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
   const cueById = useMemo(() => new Map(cues.map((c) => [c.id, c])), [cues]);
@@ -226,6 +231,12 @@ export function PlayDeck({
     );
   }
 
+  /** 戻るかを確かめている曲の位置。押したあとで曲数が変わっていたら無効（確認を出さない） */
+  const backTarget =
+    confirmBack && confirmBack.length === path.length && confirmBack.index < path.length - 1
+      ? confirmBack.index
+      : null;
+
   return (
     <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav sm:px-4">
       {/* ── 今かけている曲。ここが常に基準なので上に貼り付けておく ── */}
@@ -258,7 +269,7 @@ export function PlayDeck({
               </button>
             )}
             <button
-              onClick={() => { setConfirmReset(false); setPicking(true); }}
+              onClick={() => { setConfirmReset(false); setConfirmBack(null); setPicking(true); }}
               className="tap rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
               title="記録に無い曲へも移れます。かけてきた順はそのまま残ります"
             >
@@ -267,13 +278,16 @@ export function PlayDeck({
           </div>
         </div>
 
-        {/* かけてきた順。押すとそこまで戻れる = 押し間違えても1タップで直せる */}
+        {/* かけてきた順。押すと、確かめてからそこまで戻る */}
         {path.length > 1 && (
           <nav ref={crumbsRef} className="mt-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[12px] text-fg-subtle">
             {path.slice(0, -1).map((id, i) => (
               <span key={`${id}-${i}`} className="shrink-0">
                 {i > 0 && <span className="mx-1">→</span>}
-                <button onClick={() => setSteps(steps.slice(0, i + 1))} className="hover:text-fg-muted">
+                <button
+                  onClick={() => { setConfirmReset(false); setConfirmBack({ index: i, length: path.length }); }}
+                  className={backTarget === i ? "text-warn" : "hover:text-fg-muted"}
+                >
                   {trackById.get(id)?.name ?? "?"}
                 </button>
               </span>
@@ -281,6 +295,38 @@ export function PlayDeck({
             <span className="mx-1 shrink-0">→</span>
             <span className="shrink-0 text-fg-muted">今</span>
           </nav>
+        )}
+
+        {/*
+          戻る前に確かめる。以前は1タップで、押した曲より後ろが全部外れていた
+          （「戻す」を狙った指が当たるだけでセットの後半が消える。暗いブースでは普通に起きる）。
+          外れる曲の名前まで出す = 何が消えるのかを読んでから押せる
+        */}
+        {backTarget !== null && (
+          <div role="alertdialog" aria-labelledby="play-back-question" className="mt-2 rounded-card border border-warn/50 bg-warn/10 p-3">
+            <p id="play-back-question" className="text-[14px] font-semibold leading-snug break-words">
+              本当に「{trackById.get(path[backTarget])?.name ?? "不明な曲"}」まで戻りますか？
+            </p>
+            <p className="mt-1 text-[12.5px] leading-snug break-words text-fg-muted">
+              その後にかけた{path.length - 1 - backTarget}曲（
+              {path.slice(backTarget + 1).map((id) => trackById.get(id)?.name ?? "不明な曲").join(" → ")}
+              ）は、かけてきた順から外れます。
+            </p>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                onClick={() => { setSteps((s) => s.slice(0, backTarget + 1)); setConfirmBack(null); }}
+                className="tap flex-1 rounded-card border border-warn/60 bg-warn/15 px-4 text-[14px] font-semibold text-warn"
+              >
+                戻る
+              </button>
+              <button
+                onClick={() => setConfirmBack(null)}
+                className="tap flex-1 rounded-card border border-border bg-surface px-4 text-[14px] text-fg-muted hover:text-fg"
+              >
+                やめる
+              </button>
+            </div>
+          </div>
         )}
 
         <p className="mt-1.5 flex flex-wrap items-center gap-x-3 text-[12px] text-fg-subtle">
@@ -450,7 +496,7 @@ export function PlayDeck({
         ) : (
           <>
             <button
-              onClick={() => setConfirmReset(true)}
+              onClick={() => { setConfirmBack(null); setConfirmReset(true); }}
               className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
               title="ここまでを履歴に残して、最初の1曲から選び直す"
             >
