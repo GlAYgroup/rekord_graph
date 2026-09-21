@@ -59,7 +59,7 @@ def nfc(s: str | None) -> str:
 LOOP_COLUMNS = {"ループ": {"checkbox": {}}, "ループ終ms": {"number": {}}}
 
 # 🎵Tracks に無ければ生やす列。ジャンルも実機で分類するものなので、鏡に載せる
-TRACK_COLUMNS = {"ジャンル": {"rich_text": {}}}
+TRACK_COLUMNS = {"ジャンル": {"rich_text": {}}, "マイタグ": {"rich_text": {}}}
 
 
 def ensure_loop_columns() -> None:
@@ -430,6 +430,8 @@ def track_values(t: dict) -> dict:
         "別名": t["shortName"],
         "アーティスト": t.get("artist") or "",
         "ジャンル": t.get("genre") or "",
+        # My Tag。1行に「カテゴリ/タグ」を1つ（`原曲/アニメ`）。並びは固定して偽の差分を出さない
+        "マイタグ": "\n".join(sorted(t.get("myTags") or [])),
         "BPM": t.get("bpm") or None,
         "Key": t.get("key") or "",
         "長さ秒": t.get("durationSec") or None,
@@ -440,7 +442,7 @@ def track_values(t: dict) -> dict:
 def track_props(t: dict) -> dict:
     """`track_values` を Notion のプロパティ形に変える。"""
     v = track_values(t)
-    text_keys = ("曲名", "別名", "アーティスト", "ジャンル", "Key", "ファイルパス")
+    text_keys = ("曲名", "別名", "アーティスト", "ジャンル", "マイタグ", "Key", "ファイルパス")
     out = {k: (na.title_prop(v[k]) if k == "曲名" else na.text_prop(v[k])) for k in text_keys}
     out["rekordboxID"] = na.text_prop(t["id"])
     out["BPM"] = {"number": v["BPM"]}
@@ -516,6 +518,7 @@ def _track_pages() -> dict[str, str]:
                     "アーティスト": na.plain(p.get("アーティスト")),
                     # 列がまだ無いワークスペースでも動く（無ければ空。書く直前に生える）
                     "ジャンル": na.plain(p.get("ジャンル")),
+                    "マイタグ": na.plain(p.get("マイタグ")),
                     "BPM": (p.get("BPM") or {}).get("number"),
                     "Key": na.plain(p.get("Key")),
                     "長さ秒": (p.get("長さ秒") or {}).get("number"),
@@ -606,7 +609,7 @@ def main() -> int:
         return 0
 
     ensure_loop_columns()   # ループ列が無いワークスペースでは、ここで1度だけ生える
-    ensure_track_columns()  # 同じくジャンル列
+    ensure_track_columns()  # 同じくジャンル・マイタグ列
     print(f"\n{len(approved)} 件を Notion に反映します…")
     for item in approved:
         apply(item)

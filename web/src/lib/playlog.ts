@@ -118,9 +118,11 @@ export type PlayFilter = {
   skipPractice: boolean;
   /** 行き先の曲のジャンルがこれに入る繋ぎを外す（`genreKey` の値）。ジャンル未入力の曲は外さない */
   skipGenres: string[];
+  /** 行き先の曲にこの My Tag（`原曲/アニメ`）が1つでも付いていれば外す */
+  skipTags: string[];
 };
 
-export const NO_FILTER: PlayFilter = { maxDifficulty: null, minStars: 0, skipPractice: false, skipGenres: [] };
+export const NO_FILTER: PlayFilter = { maxDifficulty: null, minStars: 0, skipPractice: false, skipGenres: [], skipTags: [] };
 
 const FILTER = "rg.play.filter.v1";
 
@@ -133,6 +135,9 @@ export function readFilter(): PlayFilter {
     skipPractice: raw.skipPractice === true,
     skipGenres: Array.isArray(raw.skipGenres)
       ? raw.skipGenres.filter((g): g is string => typeof g === "string" && g !== "")
+      : [],
+    skipTags: Array.isArray(raw.skipTags)
+      ? raw.skipTags.filter((g): g is string => typeof g === "string" && g !== "")
       : [],
   };
 }

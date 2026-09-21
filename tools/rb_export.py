@@ -97,6 +97,16 @@ def export(only: str | None = None) -> dict:
             for t in db.get_playlist_contents(pl):
                 playlists_by_track[str(t.ID)].append(pl.Name)
 
+        # My Tag = 「カテゴリ/タグ」（`原曲/アニメ`）。ジャンル欄は1つしか入らないので、
+        # 原曲の分類はこちらに置いている（tools/rb_mytag.py）
+        my_tags = {str(m.ID): m for m in db.get_my_tag()}
+        tags_by_track: dict[str, list[str]] = defaultdict(list)
+        for s in db.get_my_tag_songs():
+            m = my_tags.get(str(s.MyTagID))
+            parent = my_tags.get(str(m.ParentID)) if m else None
+            if m and parent:
+                tags_by_track[str(s.ContentID)].append(f"{parent.Name}/{m.Name}")
+
         tracks = []
         for t in db.get_content():
             path = t.FolderPath or ""
@@ -129,6 +139,7 @@ def export(only: str | None = None) -> dict:
                     "title": t.Title or "",
                     "artist": t.Artist.Name if t.Artist else None,
                     "genre": t.Genre.Name if t.Genre else None,
+                    "myTags": sorted(set(tags_by_track.get(str(t.ID), []))),
                     "bpm": round((t.BPM or 0) / 100.0, 2),
                     "key": t.Key.ScaleName if t.Key else None,
                     "durationSec": t.Length or None,  # 波形タイムラインを正しい比率で描くのに要る

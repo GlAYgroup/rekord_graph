@@ -15,6 +15,11 @@ export type Track = {
   artist: string;
   /** rekordbox のジャンル欄（🎵Tracks の鏡）。未入力は ""。/play の除外条件に使う */
   genre: string;
+  /**
+   * rekordbox の My Tag（🎵Tracks の「マイタグ」）。`原曲/アニメ` のように「カテゴリ/タグ」。
+   * ジャンル欄は音の種類、原曲の分類はこちら（1曲に複数付く）。/play の除外条件に使う
+   */
+  myTags: string[];
   bpm: number | null;
   musicalKey: string;
   rekordboxId: string;

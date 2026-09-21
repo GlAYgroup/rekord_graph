@@ -146,6 +146,8 @@ async function build(): Promise<Graph> {
       artist: text(p.properties["アーティスト"]),
       // 列は sync が生やす。まだ無いワークスペースでは空（= どのジャンル条件でも外さない）
       genre: text(p.properties["ジャンル"]).trim(),
+      // 1行に1つ（sync が書く形）。列が無ければ空
+      myTags: text(p.properties["マイタグ"]).split("\n").map((s) => s.trim()).filter((s) => s.includes("/")),
       bpm: num(p.properties["BPM"]),
       musicalKey: text(p.properties["Key"]),
       rekordboxId: text(p.properties["rekordboxID"]),
