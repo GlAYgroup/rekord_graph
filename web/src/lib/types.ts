@@ -54,6 +54,8 @@ export type Transition = {
   /** 次の曲（To）のキューの何小節**後**から繋ぎ始めるか。`bars` とは排他（両方は入らない） */
   barsAfter: number | null;
   rating: string | null;
+  /** 難易度（`lib/difficulty.ts` の値）。未入力は null = /play の難易度条件では外さない */
+  difficulty: string | null;
   /** 要練習マーク。次の練習で拾う繋ぎに付ける（一覧は /practice） */
   practice: boolean;
   chain: string;

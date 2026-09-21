@@ -8,7 +8,12 @@ import { PracticeToggle } from "./PracticeToggle";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
-import { archive, readCurrent, writeCurrent, type PlayStep } from "@/lib/playlog";
+import { DIFFICULTIES, DIFFICULTY_LABEL, difficultyRank, type Difficulty } from "@/lib/difficulty";
+import {
+  archive, NO_FILTER, readCurrent, readFilter, writeCurrent, writeFilter,
+  type PlayFilter, type PlayStep,
+} from "@/lib/playlog";
+import { RATINGS, starCount } from "@/lib/ratings";
 import { maxOnwardFrom } from "@/lib/route";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -42,6 +47,11 @@ import type { Cue, Track, Transition } from "@/lib/types";
  * ★ セットが終わる（リセット / 別の曲から開き直す）と、**かけてきた順は履歴として端末に残る**
  *   （`lib/playlog.ts`。一覧は `/play/history`）。そのため1手ごとに「押した繋ぎの ID」も
  *   一緒に持つ — 同じ2曲の間に繋ぎが複数あることがあり、後から曲の組ではひき直せない。
+ *
+ * ★ 除外条件（難易度「◯まで」・星「◯以上」）で繋ぎを外せる。外した繋ぎは**無いものとして**
+ *   「この先◯曲」も数え直す（カードだけ隠すと、外した繋ぎを通った数と並びが残る）。
+ *   未入力の繋ぎは外さない。条件は端末に残り、リセットしても消えない（`lib/playlog.ts`）。
+ *   Notion に何も書かないので `data-edit` は付けない（本番中に緩められないと困る）。
  */
 
 export function PlayDeck({
@@ -81,6 +91,10 @@ export function PlayDeck({
    * その後に進んだり「戻す」を押したりしたら確認は取り下げる（ずれた位置で戻らせない）
    */
   const [confirmBack, setConfirmBack] = useState<{ index: number; length: number } | null>(null);
+  /** 除外条件。端末に残したものを mount 後に読む */
+  const [filter, setFilter] = useState<PlayFilter>(NO_FILTER);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filtering = filter.maxDifficulty !== null || filter.minStars > 0;
 
   const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
   const cueById = useMemo(() => new Map(cues.map((c) => [c.id, c])), [cues]);
@@ -107,6 +121,7 @@ export function PlayDeck({
     if (initRef.current) return;
     initRef.current = true;
     setRestored(true);
+    setFilter(readFilter());
     /*
       「この曲から始める」は、**アドレスにまだ `?from=` が残っているとき**だけ。
       下で URL から外しても、Next は `?from=` で描いた画面データを履歴に持っている。
@@ -130,6 +145,30 @@ export function PlayDeck({
     if (!restored) return;
     writeCurrent(steps);
   }, [steps, restored]);
+  useEffect(() => {
+    if (restored) writeFilter(filter);
+  }, [filter, restored]);
+
+  /**
+   * 除外条件を通る繋ぎか。**未入力は通す**（難易度・星は後から付けていくもので、
+   * 未入力を外すと条件を入れた途端にほとんどの繋ぎが消える）
+   */
+  const passes = useMemo(() => {
+    const maxRank = difficultyRank(filter.maxDifficulty);
+    return (t: Transition) => {
+      const rank = difficultyRank(t.difficulty);
+      if (maxRank > 0 && rank > maxRank) return false;
+      const stars = starCount(t.rating);
+      if (filter.minStars > 0 && stars > 0 && stars < filter.minStars) return false;
+      return true;
+    };
+  }, [filter]);
+  /** 条件で外した繋ぎを抜いた隣接。「この先◯曲」はこちらで数える */
+  const usable = useMemo(() => {
+    const m = new Map<string, Transition[]>();
+    for (const [id, list] of outgoing) m.set(id, list.filter(passes));
+    return m;
+  }, [outgoing, passes]);
 
   // 一覧と行き先カードは別の長さの画面なのに、切り替えても縦位置は残る。
   // 3枚目まで送ってから「曲を変える」を押すと、84曲の一覧の途中（検索欄も「やめる」も
@@ -154,8 +193,11 @@ export function PlayDeck({
     () => (current ? outgoing.get(current.id) ?? [] : []),
     [current, outgoing],
   );
-  const open = candidates.filter((t) => !usedSongs.has(songOf(t.toTrackId)));
-  const hidden = candidates.length - open.length;
+  const unplayed = candidates.filter((t) => !usedSongs.has(songOf(t.toTrackId)));
+  const open = unplayed.filter(passes);
+  /** かけた曲で隠した数と、条件で外した数は別の話なので分けて出す */
+  const hiddenPlayed = candidates.length - unplayed.length;
+  const hiddenFiltered = unplayed.length - open.length;
 
   /**
    * 一覧の並び = **「この先◯曲」が多い順。** 先が長い枝ほど、その後のセットの
@@ -174,7 +216,7 @@ export function PlayDeck({
       return {
         transition: t,
         to,
-        onward: maxOnwardFrom(outgoing, songOf, t.toTrackId, usedSongs),
+        onward: maxOnwardFrom(usable, songOf, t.toTrackId, usedSongs),
         tempo: Math.abs(bpmDelta(current.bpm, to?.bpm ?? null) ?? 999),
       };
     });
@@ -187,12 +229,12 @@ export function PlayDeck({
     );
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, open.map((t) => t.id).join(","), usedSongs, outgoing, songOf, trackById]);
+  }, [current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById]);
 
   /** 今の曲から先、あと何曲つなげるか（今の曲を含む）。今の曲の songId は起点なので外す */
   const remaining = current
     ? maxOnwardFrom(
-        outgoing,
+        usable,
         songOf,
         current.id,
         new Set([...usedSongs].filter((s) => s !== songOf(current.id))),
@@ -216,6 +258,7 @@ export function PlayDeck({
         maxFrom={maxFrom}
         usedSongs={usedSongs}
         playedIds={new Set(path)}
+        filtering={filtering}
         mode={current ? "jump" : "start"}
         onPick={(id) => {
           setPicking(false);
@@ -334,16 +377,38 @@ export function PlayDeck({
           <span className={remaining > 1 ? "text-hot" : ""}>
             {remaining > 1 ? `この先 最大${remaining}曲` : "行き止まり"}
           </span>
-          {hidden > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hidden}</span>}
+          {hiddenPlayed > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hiddenPlayed}</span>}
+          {hiddenFiltered > 0 && <span className="text-warn">条件で外した繋ぎ {hiddenFiltered}</span>}
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            aria-expanded={filterOpen}
+            className={`tap ml-auto rounded-full border px-3 text-[12px] ${
+              filtering
+                ? "border-warn/50 bg-warn/10 text-warn"
+                : "border-border text-fg-subtle hover:text-fg"
+            }`}
+          >
+            {filtering ? `除外: ${filterSummary(filter)}` : "除外条件"}
+          </button>
         </p>
       </header>
+
+      {filterOpen && <FilterPanel filter={filter} onChange={setFilter} onClose={() => setFilterOpen(false)} />}
 
       {rows.length === 0 ? (
         <p className="mt-8 rounded-card border border-border bg-surface p-5 text-[14px] text-fg-muted">
           {candidates.length === 0
             ? "この曲から繋げる先はまだ記録されていません。"
-            : "繋げる先はありますが、どれも今回かけ終わった曲です。"}
+            : unplayed.length > 0
+              ? `まだかけていない曲への繋ぎが${unplayed.length}本ありますが、どれも除外条件で外れています。`
+              : "繋げる先はありますが、どれも今回かけ終わった曲です。"}
           <br />
+          {unplayed.length > 0 && (
+            <>
+              「除外条件」を緩めると出てきます。
+              <br />
+            </>
+          )}
           「戻す」で一つ前に戻るか、「曲を変える」で記録に無い曲へも移れます
           （移った先も、繋いだ曲として数えます）。
         </p>
@@ -421,9 +486,18 @@ export function PlayDeck({
                       mode="enter"
                     />
 
-                    {(t.technique || barsLabel(t, cueLabel(toCue)) || t.comment) && (
+                    {(t.technique || t.difficulty || t.rating || barsLabel(t, cueLabel(toCue)) || t.comment) && (
                       <div className="space-y-1 pt-0.5">
                         <div className="flex flex-wrap items-center gap-2">
+                          {/* 除外条件の根拠が画面に無いと、なぜ残ったか読めない */}
+                          {t.difficulty && (
+                            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+                              {DIFFICULTY_LABEL[t.difficulty as Difficulty] ?? t.difficulty}
+                            </span>
+                          )}
+                          {t.rating && (
+                            <span className="text-[11.5px] text-warn">{t.rating}</span>
+                          )}
                           {t.technique && (
                             <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
                               {t.technique}
@@ -524,7 +598,7 @@ export function PlayDeck({
  * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
  */
 function StartPicker({
-  tracks, maxFrom, usedSongs, playedIds, mode, onPick, onCancel,
+  tracks, maxFrom, usedSongs, playedIds, filtering, mode, onPick, onCancel,
 }: {
   tracks: Track[];
   maxFrom: Record<string, number>;
@@ -532,6 +606,8 @@ function StartPicker({
   usedSongs: ReadonlySet<string>;
   /** かけた曲そのもの（曲ID）。印を「かけた」と「別版をかけた」で分けるためだけに使う */
   playedIds: ReadonlySet<string>;
+  /** 除外条件が入っているか。入っていても「最大◯曲」は全部の繋ぎで数えた数のまま */
+  filtering: boolean;
   mode: "start" | "jump";
   onPick: (id: string) => void;
   /** 途中で開いたときだけ「やめる」で戻れる（かけてきた順は消さない） */
@@ -573,6 +649,8 @@ function StartPicker({
         {mode === "jump"
           ? "繋ぎが記録されていない曲へも移れます。選ぶと、繋いだ曲として続きから並びます。"
           : "選ぶとここから繋げる先が並びます。長くつなげる曲が上です。"}
+        {/* 全曲ぶんを条件つきで数え直すと重いので、ここの数だけは条件を入れる前の数 */}
+        {filtering && " 右の「最大◯曲」は除外条件を入れる前の数です。"}
       </p>
       {/* リセットの直後に立つのがこの画面なので、**曲の一覧より上に**履歴の入口を置く
           （84曲の下に置くと、前のセットを見返したい人には届かない） */}
@@ -633,5 +711,89 @@ function StartPicker({
           : <Link href="/" className="hover:text-fg-muted">一覧に戻る</Link>}
       </p>
     </main>
+  );
+}
+
+/** 除外条件を短く言う（ヘッダのボタンに出す）。`Middleまで・★★★以上` */
+function filterSummary(f: PlayFilter): string {
+  const parts: string[] = [];
+  if (f.maxDifficulty) parts.push(`${f.maxDifficulty}まで`);
+  if (f.minStars > 0) parts.push(`${"★".repeat(f.minStars)}以上`);
+  return parts.join("・");
+}
+
+/**
+ * 除外条件の設定。どちらも「ここまで使う」の1軸なので、以上/以下を読ませずに
+ * 選択肢そのものに言い切らせる（「全部」「Middle まで」「Easy だけ」）。
+ * 未入力の繋ぎはどの条件でも外さない。
+ */
+function FilterPanel({
+  filter, onChange, onClose,
+}: {
+  filter: PlayFilter;
+  onChange: (f: PlayFilter) => void;
+  onClose: () => void;
+}) {
+  const chip = (on: boolean) =>
+    `tap rounded-full border px-3.5 text-[13px] transition-colors ${
+      on ? "border-accent/60 bg-accent/12 text-accent" : "border-border bg-surface text-fg-muted hover:text-fg"
+    }`;
+  const difficultyChoices: { value: string | null; label: string }[] = [
+    { value: null, label: "全部" },
+    ...DIFFICULTIES.slice(0, -1).reverse().map((d, i, arr) => ({
+      value: d,
+      label: i === arr.length - 1 ? `${d} だけ` : `${d} まで`,
+    })),
+  ];
+  const starChoices = [0, ...RATINGS.slice(1).map((_, i) => i + 2)];
+
+  return (
+    <section className="mt-3 space-y-3 rounded-card border border-border bg-surface p-3">
+      <div>
+        <span className="label">難易度 · 難しい繋ぎを外す</span>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {difficultyChoices.map((c) => (
+            <button
+              key={c.label}
+              onClick={() => onChange({ ...filter, maxDifficulty: c.value })}
+              className={chip(filter.maxDifficulty === c.value)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <span className="label">評価 · 星の少ない繋ぎを外す</span>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {starChoices.map((n) => (
+            <button
+              key={n}
+              onClick={() => onChange({ ...filter, minStars: n })}
+              className={chip(filter.minStars === n)}
+            >
+              {n === 0 ? "全部" : `${"★".repeat(n)} 以上`}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-[12px] leading-snug text-fg-subtle">
+        難易度・評価が未入力の繋ぎは外しません。条件はこの端末に残り、リセットしても消えません。
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={() => onChange(NO_FILTER)}
+          className="tap flex-1 rounded-card border border-border px-4 text-[13px] text-fg-muted hover:text-fg"
+        >
+          条件を外す
+        </button>
+        <button
+          onClick={onClose}
+          className="tap flex-1 rounded-card border border-border bg-surface-2 px-4 text-[13px] text-fg hover:border-border-bright"
+        >
+          閉じる
+        </button>
+      </div>
+    </section>
   );
 }

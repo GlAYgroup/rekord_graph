@@ -101,3 +101,34 @@ export function deleteSet(id: string): PlaySet[] {
   write(HISTORY, rest);
   return rest;
 }
+
+/**
+ * `/play` の除外条件。**端末の設定**なので、かけてきた順と同じく localStorage だけが持つ
+ * （セットをリセットしても残す = 「今夜は Hard を使わない」は1セットより長く効く）。
+ *
+ * どちらも **未入力の繋ぎは外さない**。難易度・評価は後から付けていくものなので、
+ * 未入力を外すと条件を入れた瞬間にほとんどの繋ぎが消える（壊れたように見える）。
+ */
+export type PlayFilter = {
+  /** 難易度がこれを超える繋ぎを外す（`lib/difficulty.ts` の値）。null = 外さない */
+  maxDifficulty: string | null;
+  /** 星がこれ未満の繋ぎを外す。0 = 外さない */
+  minStars: number;
+};
+
+export const NO_FILTER: PlayFilter = { maxDifficulty: null, minStars: 0 };
+
+const FILTER = "rg.play.filter.v1";
+
+export function readFilter(): PlayFilter {
+  const raw = parse(FILTER) as Partial<PlayFilter> | null;
+  if (!raw || typeof raw !== "object") return NO_FILTER;
+  return {
+    maxDifficulty: typeof raw.maxDifficulty === "string" ? raw.maxDifficulty : null,
+    minStars: typeof raw.minStars === "number" ? raw.minStars : 0,
+  };
+}
+
+export function writeFilter(f: PlayFilter) {
+  write(FILTER, f);
+}

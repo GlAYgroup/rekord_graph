@@ -1,3 +1,4 @@
+import { asDifficulty } from "@/lib/difficulty";
 import { getGraph } from "@/lib/graph";
 import { createTransition, deleteTransition, updateTransition } from "@/lib/transitions";
 
@@ -56,6 +57,8 @@ async function validated(body: Record<string, unknown> | null) {
       chain: str(body?.chain),
       technique: str(body?.technique) || null,
       rating: str(body?.rating) || null,
+      // 知らない値は捨てる（打ち間違いで Notion の選択肢を増やさない）
+      difficulty: asDifficulty(str(body?.difficulty)),
       bars,
       barsAfter,
       practice: body?.practice === true,

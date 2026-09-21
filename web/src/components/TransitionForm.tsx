@@ -6,6 +6,7 @@ import { CuePad, LoopTag } from "@/components/CuePad";
 import { usePerformance } from "@/components/PerformanceMode";
 import type { Cue } from "@/lib/types";
 import { barsLabel, cueLabel, formatPosition } from "@/lib/format";
+import { DIFFICULTIES, DIFFICULTY_LABEL } from "@/lib/difficulty";
 import { RATINGS } from "@/lib/ratings";
 
 /**
@@ -50,6 +51,7 @@ export type ListedTransition = {
   bars: number | null;
   barsAfter: number | null;
   practice: boolean;
+  difficulty: string | null;
   chain: string;
 };
 
@@ -91,6 +93,7 @@ export function TransitionForm({
 
   const [technique, setTechnique] = useState<string | null>(editRow?.technique ?? null);
   const [rating, setRating] = useState<string | null>(editRow?.rating ?? null);
+  const [difficulty, setDifficulty] = useState<string | null>(editRow?.difficulty ?? null);
   // 小節数は「TO の何小節前から」と「何小節後から」の2項目。**入るのは片方だけ**
   // （片方に数が入っている間、もう片方は塞ぐ。API 側でも両方入りを弾いている）
   const [bars, setBars] = useState(editRow?.bars == null ? "" : String(editRow.bars));
@@ -134,7 +137,7 @@ export function TransitionForm({
   /** フォームの中身を1本にしたもの。保存した時点と比べて「触ったか」を見る */
   const formKey = JSON.stringify([
     fromTrack?.id ?? null, fromCue?.id ?? null, toTrack?.id ?? null, toCue?.id ?? null,
-    technique, rating, bars, barsAfter, practice, chain, comment,
+    technique, rating, difficulty, bars, barsAfter, practice, chain, comment,
   ]);
   const saved = savedKey === formKey;
   /** 小節数の読み下し（`次の曲 C「歌入り」の16小節前`）。組み立ては format.ts の barsLabel だけ */
@@ -162,7 +165,7 @@ export function TransitionForm({
   /** フォームを空に戻す。枠ごと作り直して、中の検索文字も残さない */
   const clearForm = () => {
     setFromTrack(null); setFromCue(null); setToTrack(null); setToCue(null);
-    setTechnique(null); setRating(null); setBars(""); setBarsAfter(""); setPractice(false);
+    setTechnique(null); setRating(null); setDifficulty(null); setBars(""); setBarsAfter(""); setPractice(false);
     setChain(""); setComment("");
     setFormSeq((n) => n + 1);
   };
@@ -201,7 +204,7 @@ export function TransitionForm({
       const payload = {
         fromTrackId: fromTrack.id, fromCueId: fromCue.id,
         toTrackId: toTrack.id, toCueId: toCue.id,
-        technique, rating, bars, barsAfter, practice, chain, comment,
+        technique, rating, difficulty, bars, barsAfter, practice, chain, comment,
       };
       const res = await fetch("/api/transitions", {
         method: editingId ? "PATCH" : "POST",
@@ -221,7 +224,7 @@ export function TransitionForm({
         comment,
         fromTrackId: fromTrack.id, fromCueId: fromCue.id,
         toTrackId: toTrack.id, toCueId: toCue.id,
-        technique, rating,
+        technique, rating, difficulty,
         bars: bars === "" ? null : Number(bars),
         barsAfter: barsAfter === "" ? null : Number(barsAfter),
         practice, chain,
@@ -257,7 +260,7 @@ export function TransitionForm({
     const tt = tracks.find((t) => t.id === row.toTrackId) ?? null;
     setFromTrack(ft); setFromCue(ft?.cues.find((c) => c.id === row.fromCueId) ?? null);
     setToTrack(tt); setToCue(tt?.cues.find((c) => c.id === row.toCueId) ?? null);
-    setTechnique(row.technique); setRating(row.rating);
+    setTechnique(row.technique); setRating(row.rating); setDifficulty(row.difficulty);
     setBars(row.bars == null ? "" : String(row.bars));
     setBarsAfter(row.barsAfter == null ? "" : String(row.barsAfter));
     setPractice(row.practice);
@@ -393,6 +396,23 @@ export function TransitionForm({
                 className={chipClass(rating === r)}
               >
                 {r}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 難易度。/play の「◯まで」で、本番で難しい繋ぎを外すのに使う（未入力は外さない） */}
+        <div>
+          <span className="label">難易度</span>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {DIFFICULTIES.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDifficulty((cur) => (cur === d ? null : d))}
+                className={chipClass(difficulty === d)}
+              >
+                {DIFFICULTY_LABEL[d]}
               </button>
             ))}
           </div>

@@ -71,6 +71,7 @@ export default async function NewTransitionPage({
       bars: t.bars,
       barsAfter: t.barsAfter,
       practice: t.practice,
+      difficulty: t.difficulty,
       chain: t.chain,
     }));
 

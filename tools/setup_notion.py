@@ -32,6 +32,7 @@ import notion_api as na
 
 HOTCUE_LETTERS = "ABCDEFGHIJKLMNOP"
 RATINGS = ["★", "★★", "★★★", "★★★★", "★★★★★"]           # web/src/lib/ratings.ts と同じ
+DIFFICULTIES = ["Easy", "Middle", "Hard"]                  # web/src/lib/difficulty.ts と同じ
 TECHNIQUES = ["同時流し", "ループ合わせ", "カット", "ビート合わせ"]  # web/src/components/TransitionForm.tsx と同じ
 
 
@@ -84,6 +85,7 @@ def schema_transitions(tracks_id: str, cues_id: str) -> dict:
         "順番": number(),
         "種類": select(TECHNIQUES),
         "評価": select(RATINGS),
+        "難易度": select(DIFFICULTIES),  # /play の「◯まで」で難しい繋ぎを外すのに使う
         "小節数": number(),          # 次の曲（To）のキューの何小節「前」から繋ぎ始めるか
         "小節数（後）": number(),     # 同じく何小節「後」から。小節数とは排他（入るのは片方だけ）
         "要練習": checkbox(),

@@ -1,5 +1,6 @@
 import "server-only";
 import { revalidateTag } from "next/cache";
+import { DIFFICULTIES } from "./difficulty";
 import { DB, NOTION_TAG, request, type NotionPage } from "./notion";
 
 /**
@@ -22,6 +23,7 @@ export type NewTransition = {
   barsAfter?: number | null;
   practice?: boolean;
   rating?: string | null;
+  difficulty?: string | null;
   chain?: string;
   order?: number | null;
 };
@@ -42,6 +44,7 @@ function properties(t: NewTransition) {
     チェーン: textProp(t.chain ?? ""),
     種類: selectProp(t.technique),
     評価: selectProp(t.rating),
+    難易度: selectProp(t.difficulty),
     小節数: { number: t.bars ?? null },
     "小節数（後）": { number: t.barsAfter ?? null },
     要練習: { checkbox: t.practice ?? false },
@@ -69,6 +72,8 @@ async function ensureColumns(): Promise<void> {
     const want: Record<string, unknown> = {
       "小節数（後）": { number: {} },
       要練習: { checkbox: {} },
+      // 選択肢の並び（易しい順）を最初から揃えておく。値から生やすと入れた順になる
+      難易度: { select: { options: DIFFICULTIES.map((name) => ({ name })) } },
     };
     const missing = Object.fromEntries(
       Object.entries(want).filter(([name]) => !(name in db.properties)),
