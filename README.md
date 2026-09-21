@@ -119,6 +119,16 @@ Vercel に置くなら、`web/` をルートにしてデプロイし、[`web/.en
 
 「状態」画面（`/health`）で、参照が壊れた繋ぎや要確認の行が分かる。
 
+### バックアップ（iCloud Drive）
+
+```bash
+./.venv/bin/python tools/backup.py            # 1回とる
+./.venv/bin/python tools/backup.py --install  # 毎日 5:00 に自動でとる（--uninstall で止める）
+```
+
+`iCloud Drive/rekordbox-backup/` に、ライブラリ（master.db・キュー・波形解析・設定）を日付ごとの世代で、
+曲ファイルを元の絶対パスの形で置く。rekordbox の起動中はスキップする。戻し方はスクリプト冒頭のコメント。
+
 ## 設定ファイル
 
 `~/.config/rekord_graph/config.json`（環境変数があればそちらが優先）:
