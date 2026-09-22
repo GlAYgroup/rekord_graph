@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { CommentEditor } from "./CommentEditor";
 import { CueLine } from "./CuePad";
 import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
+import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
 import { minutesLabel, setLength, type SetLength } from "@/lib/duration";
@@ -55,6 +58,12 @@ import type { Cue, Track, Transition } from "@/lib/types";
  *   Notion に何も書かないので `data-edit` は付けない（本番中に緩められないと困る）。
  */
 
+/** 「次にこの画面を開いたら一度取り直す」の印（タブごと）。PlayDeck の中の取り直しの説明を参照 */
+const STALE = "rg.play.stale";
+const markStale = () => {
+  try { sessionStorage.setItem(STALE, "1"); } catch { /* 残せなければ取り直さないだけ */ }
+};
+
 export function PlayDeck({
   tracks, cues, transitions, maxFrom, maxLength, initialTrackId,
 }: {
@@ -97,6 +106,43 @@ export function PlayDeck({
   /** 除外条件。端末に残したものを mount 後に読む */
   const [filter, setFilter] = useState<PlayFilter>(NO_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
+  /**
+   * 下見中にその場で直した分（星・要練習・コメント）。画面は取り直さずに、手元の行へ重ねる。
+   * 1タップごとに `router.refresh()` すると、そのたびに Notion を全件読み直し、全曲ぶんの
+   * 「この先◯曲」もサーバで数え直す（続けて押すと重いうえ、Notion の上限に当たる）。
+   * 重ねた値は除外条件と「この先◯曲」にもそのまま効く。
+   * サーバから新しい一覧が届いたら（開き直したとき）、そちらが正なので重ねた分は捨てる
+   */
+  const [patches, setPatches] = useState<Record<string, Partial<Transition>>>({});
+  const [seenTransitions, setSeenTransitions] = useState(transitions);
+  if (seenTransitions !== transitions) { setSeenTransitions(transitions); setPatches({}); }
+  const live = useMemo(
+    () => transitions.map((t) => (patches[t.id] ? { ...t, ...patches[t.id] } : t)),
+    [transitions, patches],
+  );
+  const patch = (id: string, p: Partial<Pick<Transition, "rating" | "practice" | "comment">>) => {
+    setPatches((cur) => ({ ...cur, [id]: { ...cur[id], ...p } }));
+    markStale();
+  };
+  /*
+    戻る・進むで戻ってきたときの取り直し。Next は戻る・進むでは、最初に開いたときの画面データを
+    取り直さずに使うので、ここで星などを直した後や「編集」へ出た後に戻ると、直す前の値で作り直される
+    （重ねた分はこの画面の state なので、離れた時点で消えている）。そうなる操作をしたら印を残し、
+    次にこの画面を開いたとき一度だけ取り直す（1タップごとに取り直さない理由は上の `patches`）
+  */
+  const router = useRouter();
+  useEffect(() => {
+    try {
+      if (!sessionStorage.getItem(STALE)) return;
+      sessionStorage.removeItem(STALE);
+    } catch { return; }
+    // `?from=` で来たときは開いたばかりの画面データなので取り直さない。下の初期化が URL から
+    // `?from=` を外すのと取り直しを競わせると、取り直した結果が `?from=` 付きの URL を戻しかねない
+    if (new URLSearchParams(window.location.search).has("from")) return;
+    router.refresh();
+  }, [router]);
+  /** コメント欄を開いている繋ぎ。複数開ける（別のカードの欄を開いても、書きかけを消さない） */
+  const [commenting, setCommenting] = useState<ReadonlySet<string>>(() => new Set());
   const filtering =
     filter.maxDifficulty !== null || filter.minStars > 0 || filter.skipPractice ||
     filter.skipGenres.length > 0 || filter.skipTags.length > 0;
@@ -120,13 +166,13 @@ export function PlayDeck({
   }, [cues]);
   const outgoing = useMemo(() => {
     const m = new Map<string, Transition[]>();
-    for (const t of transitions) {
+    for (const t of live) {
       const list = m.get(t.fromTrackId) ?? [];
       list.push(t);
       m.set(t.fromTrackId, list);
     }
     return m;
-  }, [transitions]);
+  }, [live]);
 
   useEffect(() => {
     if (initRef.current) return;
@@ -190,7 +236,7 @@ export function PlayDeck({
   const genres = useMemo(() => {
     const byKey = new Map<string, { key: string; count: number; spellings: Map<string, number> }>();
     const seen = new Set<string>();
-    for (const t of transitions) {
+    for (const t of live) {
       if (seen.has(t.toTrackId)) continue;
       seen.add(t.toTrackId);
       const raw = trackById.get(t.toTrackId)?.genre ?? "";
@@ -212,7 +258,7 @@ export function PlayDeck({
         label: [...e.spellings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0],
       }))
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ja"));
-  }, [transitions, trackById, filter.skipGenres]);
+  }, [live, trackById, filter.skipGenres]);
 
   /**
    * My Tag をカテゴリごとに（`原曲` → アニメ・VOCALOID…）。ジャンルと同じく、
@@ -221,7 +267,7 @@ export function PlayDeck({
   const tagGroups = useMemo(() => {
     const count = new Map<string, number>();
     const seen = new Set<string>();
-    for (const t of transitions) {
+    for (const t of live) {
       if (seen.has(t.toTrackId)) continue;
       seen.add(t.toTrackId);
       for (const tag of trackById.get(t.toTrackId)?.myTags ?? []) count.set(tag, (count.get(tag) ?? 0) + 1);
@@ -239,7 +285,7 @@ export function PlayDeck({
         tags: tags.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ja")),
       }))
       .sort((a, b) => a.category.localeCompare(b.category, "ja"));
-  }, [transitions, trackById, filter.skipTags]);
+  }, [live, trackById, filter.skipTags]);
 
   /** 条件で外した繋ぎを抜いた隣接。「この先◯曲」はこちらで数える */
   const usable = useMemo(() => {
@@ -255,6 +301,15 @@ export function PlayDeck({
   // 次の曲の一覧はいちばん先の長い候補（＝一番上）が画面の上に隠れたまま始まっていた
   const currentId = path[path.length - 1] ?? null;
   useEffect(() => { window.scrollTo({ top: 0 }); }, [picking, currentId]);
+  // 今の曲が変わったらコメント欄は畳む（「戻す」で戻ってきたとき、前に開いた欄が空のまま開いて出ないように）
+  const [commentingAt, setCommentingAt] = useState(currentId);
+  if (commentingAt !== currentId) { setCommentingAt(currentId); setCommenting(new Set()); }
+  const toggleComment = (id: string, open: boolean) =>
+    setCommenting((cur) => {
+      const next = new Set(cur);
+      if (open) next.add(id); else next.delete(id);
+      return next;
+    });
   const current = currentId ? trackById.get(currentId) : undefined;
   /** 曲ID -> 同じ曲の仲間で共通の ID。リミックス違いは同じ値 */
   const songOf = useMemo(
@@ -333,7 +388,7 @@ export function PlayDeck({
         ahead.trackIds,
         ahead.edges,
         lengthLookup,
-        viaId ? transitions.find((t) => t.id === viaId) ?? null : null,
+        viaId ? live.find((t) => t.id === viaId) ?? null : null,
       )
     : null;
 
@@ -627,7 +682,7 @@ export function PlayDeck({
                       mode="enter"
                     />
 
-                    {(t.technique || t.difficulty || t.rating || barsLabel(t, cueLabel(toCue)) || t.comment) && (
+                    {(t.technique || t.difficulty || (performing && t.rating) || barsLabel(t, cueLabel(toCue)) || t.comment) && (
                       <div className="space-y-1 pt-0.5">
                         <div className="flex flex-wrap items-center gap-2">
                           {/* 除外条件の根拠が画面に無いと、なぜ残ったか読めない */}
@@ -636,7 +691,8 @@ export function PlayDeck({
                               {DIFFICULTY_LABEL[t.difficulty as Difficulty] ?? t.difficulty}
                             </span>
                           )}
-                          {t.rating && (
+                          {/* 星の印は本番中だけ。下見中は下の帯の押せる星が同じことを言うので重ねない */}
+                          {performing && t.rating && (
                             <span className="text-[11.5px] text-warn">{t.rating}</span>
                           )}
                           {t.technique && (
@@ -661,16 +717,66 @@ export function PlayDeck({
                   </div>
                 </button>
                 {/*
-                  下見中（本番ボタンを押していないとき）だけ、その場で「要練習」を付け外しできる。
-                  下見 = 「ここは練習が要るな」と気づく時間なので、入力画面へ戻らせない。
-                  本番中は Notion へ書く入口を畳む約束なので出さない（`data-edit` でも二重に畳む）
+                  下見中（本番ボタンを押していないとき）だけ、その場で星・要練習・コメントを直せる。
+                  「編集」は入力画面をこの繋ぎで開く（種類・小節数・難易度・キューの付け替えなど、ここに無い項目の口）。
+                  下見 = 「ここは練習が要る」「ここはこう繋ぐ」と気づく時間なので、入力画面へ戻らせない。
+                  本番中は Notion へ書く入口を畳む約束なので出さない（`data-edit` でも二重に畳む）。
+                  保存しても画面は取り直さない（`refresh={false}`）。手元の行に重ねる（上の `patches`）
                 */}
                 {!performing && (
-                  <div
-                    data-edit
-                    className="flex items-center gap-2 border-t border-border px-3 py-1 sm:px-4"
-                  >
-                    <PracticeToggle id={t.id} value={t.practice} className="ml-auto" />
+                  <div data-edit className="border-t border-border px-3 py-1 sm:px-4">
+                    {/*
+                      曲ページのカードと同じ並び。スマホでは星（180px）と操作が1行に収まらないので、
+                      操作はひとまとめにして次の行の右端へ落とす（1段目 = 評価と星、2段目 = 操作）
+                    */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="label">評価</span>
+                      <RatingPicker
+                        id={t.id}
+                        value={t.rating}
+                        refresh={false}
+                        onSaved={(rating) => patch(t.id, { rating })}
+                        className="-my-0.5 ml-auto"
+                      />
+                      <span className="ml-auto flex items-center gap-2 sm:ml-0">
+                        <PracticeToggle
+                          id={t.id}
+                          value={t.practice}
+                          refresh={false}
+                          onSaved={(practice) => patch(t.id, { practice })}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => toggleComment(t.id, !commenting.has(t.id))}
+                          aria-expanded={commenting.has(t.id)}
+                          title="この繋ぎのコメントを、ここで書き足す・直す"
+                          className={`tap inline-flex shrink-0 items-center rounded-full border px-3 text-[12px] transition-colors ${
+                            commenting.has(t.id)
+                              ? "border-accent/60 bg-accent/12 text-accent"
+                              : "border-border text-fg-subtle hover:border-border-bright hover:text-fg"
+                          }`}
+                        >
+                          コメント
+                        </button>
+                        <Link
+                          href={`/new?edit=${t.id}`}
+                          // 入力画面で直して「戻る」で帰ってきたら、この画面を取り直す（上の STALE）
+                          onClick={markStale}
+                          className="tap inline-flex shrink-0 items-center rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+                          title="この繋ぎのキュー・種類・小節数・難易度などを直す"
+                        >
+                          編集
+                        </Link>
+                      </span>
+                    </div>
+                    {commenting.has(t.id) && (
+                      <CommentEditor
+                        id={t.id}
+                        value={t.comment}
+                        onSaved={(comment) => { patch(t.id, { comment }); toggleComment(t.id, false); }}
+                        onClose={() => toggleComment(t.id, false)}
+                      />
+                    )}
                   </div>
                 )}
               </li>

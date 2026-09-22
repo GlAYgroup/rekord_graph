@@ -175,7 +175,20 @@ export async function updateTransitionDifficulty(id: string, difficulty: string 
 }
 
 /**
- * `id` が 🔀Transitions の（消していない）行か。1タップの保存（星・要練習・難易度）の確かめ用。
+ * コメントだけを書き換える。`/play` の下見中に、その場で書き足すための経路（`properties()` は通さない
+ * = 種類・小節数・チェーンなど他の列は触らない）。長さの切り詰めと空の扱いは `textProp` に任せる。
+ */
+export async function updateTransitionComment(id: string, comment: string): Promise<void> {
+  await request(`/pages/${id}`, {
+    method: "PATCH",
+    body: { properties: { コメント: textProp(comment) } },
+    fresh: true,
+  });
+  revalidateTag(NOTION_TAG, { expire: 0 });
+}
+
+/**
+ * `id` が 🔀Transitions の（消していない）行か。1タップの保存（星・要練習・難易度・コメント）の確かめ用。
  *
  * 以前は `getGraph()` の一覧に在るかで見ていたが、直前の保存でキャッシュを捨てているので
  * **1タップごとに3つの DB を全件読み直していた**（十数リクエスト）。一括編集で続けて押すと
