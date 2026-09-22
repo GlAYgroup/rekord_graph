@@ -68,6 +68,9 @@ export function barsLabel(t: BarsLike, toCueLabel: string): string | null {
   return null;
 }
 
+/** チェーン名の読み = `chain6` → `チェーン 6`。チェーンの画面の見出しと入力画面の一覧が同じ形で読めるように */
+export const chainLabel = (chain: string): string => chain.replace(/^chain/i, "チェーン ");
+
 /** ループの長さ（ms）。始まりと終わりの差。ループでなければ null */
 export function loopLengthMs(cue: { positionMs: number | null; loopEndMs?: number | null }): number | null {
   if (cue.loopEndMs == null || cue.positionMs == null) return null;

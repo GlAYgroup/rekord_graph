@@ -5,8 +5,8 @@ import { useMemo, useRef, useState } from "react";
 import { CuePad, LoopTag } from "@/components/CuePad";
 import { usePerformance } from "@/components/PerformanceMode";
 import type { Cue } from "@/lib/types";
-import { barsLabel, cueLabel, formatPosition } from "@/lib/format";
-import { DIFFICULTIES, DIFFICULTY_LABEL } from "@/lib/difficulty";
+import { barsLabel, chainLabel, cueLabel, formatPosition } from "@/lib/format";
+import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import { RATINGS } from "@/lib/ratings";
 import { DifficultyPicker } from "./DifficultyPicker";
 import { PracticeToggle } from "./PracticeToggle";
@@ -56,6 +56,8 @@ export type ListedTransition = {
   practice: boolean;
   difficulty: string | null;
   chain: string;
+  /** sync が「rekordbox とズレているかも」と印を付けた行。この画面で保存し直すと外れる */
+  needsReview: boolean;
 };
 
 export function TransitionForm({
@@ -236,6 +238,8 @@ export function TransitionForm({
         bars: bars === "" ? null : Number(bars),
         barsAfter: barsAfter === "" ? null : Number(barsAfter),
         practice, chain,
+        // 保存は同期ステータスを OK に書く（lib/transitions.ts の properties）= 印は外れる
+        needsReview: false,
       };
 
       setRows((cur) => (editingId ? cur.map((r) => (r.id === id ? row : r)) : [row, ...cur]));
@@ -649,7 +653,7 @@ export function TransitionForm({
                 <span className="block font-mono text-[11.5px] text-fg-subtle break-words">
                   {r.fromCue} → {r.toCue}
                 </span>
-                {r.comment && <span className="block text-[12px] text-fg-muted break-words">{r.comment}</span>}
+                <RowDetails row={r} bulk={bulk} />
               </span>
               {bulk && (
                 <div className="order-last flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-2">
@@ -717,6 +721,63 @@ const Bpm = ({ value }: { value: number | null }) => (
     <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
   </span>
 );
+
+/**
+ * 登録済みの1行に、入れた内容を**全部**出す: 種類・小節数・評価・難易度・要練習・チェーン・コメント。
+ * この一覧は「入れた内容が合っているか」を確かめる場所なので、フォームで入れられるものは省かない
+ * （以前はコメントしか出ず、ビート合わせにしたか・何小節前から入るかは編集を開くまで読めなかった）。
+ * 札の見た目は /play のカードと同じ。コメントは改行もそのまま出す。
+ *
+ * 一括編集中は、評価・難易度・要練習を押して変えるボタンが同じ行に出るので、その3つの札は出さない
+ * （同じことを1行で2回言わない）。種類・小節数・チェーン・コメントは一括編集に無いので常に出す。
+ */
+function RowDetails({ row, bulk }: { row: ListedTransition; bulk: boolean }) {
+  // 出す・出さないは barsLabel の結果で決める（`bars != null` で見ると「後」だけの行が消える）
+  const bars = barsLabel(row, row.toCue);
+  const rating = !bulk && row.rating;
+  const difficulty = !bulk && row.difficulty;
+  const practice = !bulk && row.practice;
+  const hasTags = !!(row.technique || bars || rating || difficulty || practice || row.chain);
+
+  return (
+    <>
+      {hasTags && (
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          {row.technique && (
+            <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
+              {row.technique}
+            </span>
+          )}
+          {bars && <span className="text-[11.5px] tabular-nums text-fg-subtle">{bars}</span>}
+          {rating && <span className="text-[11.5px] text-warn">{rating}</span>}
+          {difficulty && (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+              {DIFFICULTY_LABEL[difficulty as Difficulty] ?? difficulty}
+            </span>
+          )}
+          {practice && (
+            <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[11px] text-warn">
+              ⚑ 要練習
+            </span>
+          )}
+          {row.chain && (
+            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+              {chainLabel(row.chain)}
+            </span>
+          )}
+        </span>
+      )}
+      {row.comment && (
+        <span className="mt-1 block whitespace-pre-wrap break-words text-[13px] leading-relaxed text-fg-muted">
+          {row.comment}
+        </span>
+      )}
+      {row.needsReview && (
+        <span className="mt-1 block text-[12px] text-warn">⚠ rekordbox とズレている可能性があります</span>
+      )}
+    </>
+  );
+}
 
 const chipClass = (on: boolean) =>
   `tap rounded-full border px-4 text-[13px] transition-colors ${

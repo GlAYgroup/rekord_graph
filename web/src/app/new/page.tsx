@@ -73,6 +73,7 @@ export default async function NewTransitionPage({
       practice: t.practice,
       difficulty: t.difficulty,
       chain: t.chain,
+      needsReview: t.needsReview,
     }));
 
   return (

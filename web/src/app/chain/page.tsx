@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CuePad, LoopTag } from "@/components/CuePad";
-import { showsLoop } from "@/lib/format";
+import { chainLabel, showsLoop } from "@/lib/format";
 import { getGraph, type Cue, type Graph, type Transition } from "@/lib/graph";
 
 export const metadata = { title: "チェーン | rekord_graph" };
@@ -154,7 +154,7 @@ export default async function ChainPage() {
               // 未分類（100本超）は段をまたいで流す。1段に押し込むと、PC では隣の段が
               // 1万px 以上空いたままになっていた
               <section key={name} className={`mb-6 rise ${unsorted ? "" : "break-inside-avoid"}`} style={{ animationDelay: `${ci * 50}ms` }}>
-                <h2 className="label mb-1">{name.replace(/^chain/i, "チェーン ")} · {list.length}本</h2>
+                <h2 className="label mb-1">{chainLabel(name)} · {list.length}本</h2>
                 <p className="mb-2 break-words text-[12.5px] text-fg-muted" title={unsorted ? undefined : chainTitle(g, main)}>
                   {unsorted ? "チェーン名の無い繋ぎ（新しい順）" : chainTitle(g, main)}
                 </p>
