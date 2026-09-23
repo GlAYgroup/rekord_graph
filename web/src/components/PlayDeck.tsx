@@ -15,7 +15,7 @@ import { canFollow, minutesLabel, setLength, timingOf, type SetLength } from "@/
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
 import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import {
-  archive, NO_FILTER, readCurrent, readFilter, writeCurrent, writeFilter,
+  archive, NO_FILTER, readCurrent, readFilter, readPlan, writeCurrent, writeFilter, writePlan,
   type PlayFilter, type PlayStep,
 } from "@/lib/playlog";
 import {
@@ -110,6 +110,11 @@ export function PlayDeck({
   const [filter, setFilter] = useState<PlayFilter>(NO_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
   /**
+   * 「セットを組む」（`/play/plan`）で「この順で始める」を押したときの道筋（繋ぎ ID）。
+   * その繋ぎのカードに「予定」の印を付けるだけで、**並びは変えない**（並びは「この先◯曲」順の約束）
+   */
+  const [planned, setPlanned] = useState<ReadonlySet<string>>(new Set());
+  /**
    * 下見中にその場で直した分（星・要練習・コメント）。画面は取り直さずに、手元の行へ重ねる。
    * 1タップごとに `router.refresh()` すると、そのたびに Notion を全件読み直し、全曲ぶんの
    * 「この先◯曲」もサーバで数え直す（続けて押すと重いうえ、Notion の上限に当たる）。
@@ -182,6 +187,7 @@ export function PlayDeck({
     initRef.current = true;
     setRestored(true);
     setFilter(readFilter());
+    setPlanned(new Set(readPlan().route));
     /*
       「この曲から始める」は、**アドレスにまだ `?from=` が残っているとき**だけ。
       下で URL から外しても、Next は `?from=` で描いた画面データを履歴に持っている。
@@ -603,6 +609,14 @@ export function PlayDeck({
                         ? `この先${n.count}曲${n.truncated ? "以上" : ""}・${minutesLabel(length.cutSec)}`
                         : "行き止まり"}
                     </span>
+                    {planned.has(t.id) && (
+                      <span
+                        className="rounded border border-accent/45 bg-accent/10 px-1.5 py-0.5 text-[10.5px] text-accent"
+                        title="「セットを組む」で出した道筋の繋ぎ"
+                      >
+                        予定
+                      </span>
+                    )}
                     {/* 本番中はトグルを出さないので、印だけここに出す。
                         下見中は下の帯のトグルが同じことを言うので重ねない */}
                     {t.practice && performing && (
@@ -753,7 +767,11 @@ export function PlayDeck({
               かけた{path.length}曲を履歴に残して、最初から選び直します
             </span>
             <button
-              onClick={() => { setConfirmReset(false); archive(steps); setSteps([]); }}
+              onClick={() => {
+                setConfirmReset(false); archive(steps); setSteps([]);
+                // セットを終えたら、組んだ道筋の「予定」も終わり（選んだ曲は残す）
+                writePlan({ ...readPlan(), route: [] }); setPlanned(new Set());
+              }}
               className="tap rounded-full border border-warn/50 bg-warn/10 px-4 text-[12.5px] text-warn"
             >
               リセットする
@@ -870,6 +888,14 @@ function StartPicker({
       {filterPanel}
       {/* リセットの直後に立つのがこの画面なので、**曲の一覧より上に**履歴の入口を置く
           （84曲の下に置くと、前のセットを見返したい人には届かない） */}
+      {mode === "start" && (
+        <Link
+          href="/play/plan"
+          className="tap mt-3 flex items-center justify-center rounded-card border border-accent/45 bg-accent/10 text-center text-[13px] text-accent transition-colors hover:border-accent"
+        >
+          入れたい曲を選んでセットを組む →
+        </Link>
+      )}
       {mode === "start" && (
         <Link
           href="/play/history"

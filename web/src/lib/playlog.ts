@@ -146,3 +146,31 @@ export function readFilter(): PlayFilter {
 export function writeFilter(f: PlayFilter) {
   write(FILTER, f);
 }
+
+/**
+ * `/play/plan`（セットを組む）の中身。**入れたい曲の選択**と、「この順で始める」で渡した**道筋**。
+ * 道筋は繋ぎ ID で持つ（同じ2曲の間に繋ぎが複数あるので、曲の組では引き直せない）。
+ * `/play` はこれを見て、予定の繋ぎのカードに「予定」の印を付ける（並びは変えない）。
+ */
+export type PlayPlan = {
+  /** 入れたい曲（曲ID） */
+  wanted: string[];
+  /** 「この順で始める」を押したときの道筋（繋ぎ ID）。まだ始めていなければ空 */
+  route: string[];
+};
+
+/** 保存先。`lib/useStoredPlan.ts` も同じ鍵を見る */
+export const PLAN = "rg.play.plan.v1";
+
+const strings = (x: unknown): string[] =>
+  Array.isArray(x) ? x.filter((s): s is string => typeof s === "string") : [];
+
+export function readPlan(): PlayPlan {
+  const raw = parse(PLAN) as Partial<PlayPlan> | null;
+  if (!raw || typeof raw !== "object") return { wanted: [], route: [] };
+  return { wanted: strings(raw.wanted), route: strings(raw.route) };
+}
+
+export function writePlan(plan: PlayPlan) {
+  write(PLAN, plan);
+}
