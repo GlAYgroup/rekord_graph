@@ -52,8 +52,10 @@ export function PlaylistEditor({
    * 開いた時点の繋ぎ。保存された繋ぎが消えていたり、後から繋ぎが記録されていたりすると
    * 揃え直した分だけ保存値と違うので、「直したか」はこちらと比べる（開いただけで「保存する」を出さない）
    */
-  const [openedHops] = useState<(string | null)[]>(() =>
-    alignHops(playlist.trackRbIds.map(idOf), playlist.hops, transitions),
+  const openedHops = useMemo(
+    () => alignHops(playlist.trackRbIds.map((rb) => byRb.get(rb)?.id ?? `rb:${rb}`), playlist.hops, transitions),
+    // 保存して props が新しくなったら、比べる相手もそれに合わせる（保存後も「保存する」が残らないように）
+    [playlist, transitions, byRb],
   );
   const [hops, setHops] = useState(openedHops);
   const trackIds = useMemo(() => items.map((rb) => byRb.get(rb)?.id ?? `rb:${rb}`), [items, byRb]);
