@@ -210,25 +210,33 @@ export function PlayDeck({
    * 除外条件を通る繋ぎか。**未入力は通す**（難易度・星は後から付けていくもので、
    * 未入力を外すと条件を入れた途端にほとんどの繋ぎが消える）
    */
-  const passes = useMemo(() => {
-    const maxRank = difficultyRank(filter.maxDifficulty);
+  /**
+   * ジャンル・My Tag の条件で外す曲か。繋ぎの判定（行き先の曲）と、曲を選ぶ一覧の
+   * 並び（外した曲は印を付けて後ろへ）の両方で使う。**未入力は外さない**
+   */
+  const skipsTrack = useMemo(() => {
     const skipGenres = new Set(filter.skipGenres);
     const skipTags = new Set(filter.skipTags);
-    return (t: Transition) => {
-      if (filter.skipPractice && t.practice) return false;
-      const to = trackById.get(t.toTrackId);
+    return (to: Track | undefined) => {
       if (skipGenres.size > 0) {
         const g = genreKey(to?.genre ?? "");
-        if (g && skipGenres.has(g)) return false;
+        if (g && skipGenres.has(g)) return true;
       }
-      if (skipTags.size > 0 && to?.myTags.some((tag) => skipTags.has(tag))) return false;
+      return skipTags.size > 0 && !!to?.myTags.some((tag) => skipTags.has(tag));
+    };
+  }, [filter.skipGenres, filter.skipTags]);
+  const passes = useMemo(() => {
+    const maxRank = difficultyRank(filter.maxDifficulty);
+    return (t: Transition) => {
+      if (filter.skipPractice && t.practice) return false;
+      if (skipsTrack(trackById.get(t.toTrackId))) return false;
       const rank = difficultyRank(t.difficulty);
       if (maxRank > 0 && rank > maxRank) return false;
       const stars = starCount(t.rating);
       if (filter.minStars > 0 && stars > 0 && stars < filter.minStars) return false;
       return true;
     };
-  }, [filter, trackById]);
+  }, [filter, trackById, skipsTrack]);
   /**
    * 除外条件に出すジャンル = **繋ぎの行き先になっている曲**のジャンルだけ（外して意味があるもの）。
    * 表記ゆれは `genreKey` で束ね、見出しは一番多い書き方を使う。曲の多い順
@@ -458,6 +466,7 @@ export function PlayDeck({
         filterPanel={filterPanel}
         usedSongs={usedSongs}
         playedIds={new Set(path)}
+        skipsTrack={skipsTrack}
         filtering={filtering}
         mode={current ? "jump" : "start"}
         onPick={(id) => {
@@ -846,7 +855,7 @@ export function PlayDeck({
  */
 function StartPicker({
   tracks, maxFrom, maxLength, truncated, filterButton, filterPanel,
-  usedSongs, playedIds, filtering, mode, onPick, onCancel,
+  usedSongs, playedIds, skipsTrack, filtering, mode, onPick, onCancel,
 }: {
   tracks: Track[];
   /** 除外条件が入っていれば、条件を通る繋ぎだけで数え直した数 */
@@ -860,6 +869,12 @@ function StartPicker({
   usedSongs: ReadonlySet<string>;
   /** かけた曲そのもの（曲ID）。印を「かけた」と「別版をかけた」で分けるためだけに使う */
   playedIds: ReadonlySet<string>;
+  /**
+   * ジャンル・My Tag の条件で外した曲か。かけた曲と同じく**外しはしない**で、印を付けて後ろに回す
+   * （条件は「そこへは繋がない」なので、一覧に上から並ぶと条件が効いていないように見える。
+   * 消すと本番の急な差し替えで、条件を外しに戻らないと選べなくなる）
+   */
+  skipsTrack: (t: Track) => boolean;
   /** 除外条件が入っているか（入っていれば右の数は条件つきで数え直したもの） */
   filtering: boolean;
   mode: "start" | "jump";
@@ -879,10 +894,11 @@ function StartPicker({
       .sort(
         (a, b) =>
           Number(usedSongs.has(a.songId)) - Number(usedSongs.has(b.songId)) ||
+          Number(skipsTrack(a)) - Number(skipsTrack(b)) ||
           (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1) ||
           a.name.localeCompare(b.name, "ja"),
       );
-  }, [q, tracks, maxFrom, usedSongs]);
+  }, [q, tracks, maxFrom, usedSongs, skipsTrack]);
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
@@ -941,6 +957,11 @@ function StartPicker({
                 {usedSongs.has(t.songId) && (
                   <span className="ml-2 inline-block whitespace-nowrap rounded border border-border px-1.5 py-0.5 align-middle text-[10.5px] text-fg-subtle">
                     {playedIds.has(t.id) ? "かけた" : "別版をかけた"}
+                  </span>
+                )}
+                {!usedSongs.has(t.songId) && skipsTrack(t) && (
+                  <span className="ml-2 inline-block whitespace-nowrap rounded border border-warn/40 px-1.5 py-0.5 align-middle text-[10.5px] text-warn">
+                    除外中
                   </span>
                 )}
               </span>
