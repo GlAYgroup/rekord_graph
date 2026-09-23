@@ -60,10 +60,14 @@ export default async function GraphPage({
     out: g.outgoing.get(t.id)?.length ?? 0,
     in: g.incoming.get(t.id)?.length ?? 0,
     maxFrom: routes[t.id].trackIds.length,
+    genre: t.genre,
+    myTags: t.myTags,
+    songId: t.songId,
   }));
 
   const edges: GEdge[] = g.transitions.map((t) => ({
     id: t.id, source: t.fromTrackId, target: t.toTrackId,
+    difficulty: t.difficulty, rating: t.rating, practice: t.practice,
   }));
 
   const panel: PanelData = {};
@@ -112,7 +116,10 @@ export default async function GraphPage({
   const connected = new Set(g.transitions.flatMap((t) => [t.fromTrackId, t.toTrackId]));
 
   // 配置はサーバで決める。端末ごとに計算すると誤差で形がズレるため、座標を渡す方が正しい
-  const layout = computeLayout(nodes.map((n) => ({ id: n.id, label: n.name })), edges);
+  const layout = computeLayout(
+    nodes.map((n) => ({ id: n.id, label: n.name })),
+    edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+  );
 
   // 保存済みパターン。先頭（最後に保存したもの）を既定の形として開く。
   // Notion が落ちていても地図は出したいので、失敗しても素の配置で続行する

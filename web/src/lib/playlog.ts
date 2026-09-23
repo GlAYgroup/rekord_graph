@@ -124,7 +124,8 @@ export type PlayFilter = {
 
 export const NO_FILTER: PlayFilter = { maxDifficulty: null, minStars: 0, skipPractice: false, skipGenres: [], skipTags: [] };
 
-const FILTER = "rg.play.filter.v1";
+/** 除外条件の保存先。`lib/useStoredFilter.ts`（グラフ）も同じ鍵を見る */
+export const FILTER = "rg.play.filter.v1";
 
 export function readFilter(): PlayFilter {
   const raw = parse(FILTER) as Partial<PlayFilter> | null;

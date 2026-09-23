@@ -13,12 +13,20 @@ export type GNode = {
   in: number;
   /** この曲から最大何曲つなげるか（サーバで計算済み） */
   maxFrom: number;
+  /** 除外条件（`lib/playFilter.ts`）の判定と、端末での数え直し（同じ曲は2回かけない）に使う */
+  genre: string;
+  myTags: string[];
+  songId: string;
 };
 
 export type GEdge = {
   id: string;
   source: string;
   target: string;
+  /** 除外条件の判定に使う（`/play` と同じ条件で繋ぎを外す） */
+  difficulty: string | null;
+  rating: string | null;
+  practice: boolean;
 };
 
 export type PanelTransition = {

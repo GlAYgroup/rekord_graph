@@ -6,7 +6,11 @@ import {
   LABEL_FONT, LABEL_LINE_H, type Layout, type Sim, labelWidth, seedNode, settle, wrapLabel,
 } from "@/lib/layout";
 import { usePerformance } from "@/components/PerformanceMode";
-import { barsLabel } from "@/lib/format";
+import { FilterPanel } from "@/components/FilterPanel";
+import { barsLabel, bpmDelta } from "@/lib/format";
+import { filterChoices, filterSummary, isFiltering, passesFilter } from "@/lib/playFilter";
+import { maxOnwardFrom } from "@/lib/route";
+import { useStoredFilter } from "@/lib/useStoredFilter";
 import { PracticeToggle } from "@/components/PracticeToggle";
 import { RatingPicker } from "@/components/RatingPicker";
 import type { GEdge, GNode, GPattern, PanelData, RouteMap } from "./types";
@@ -58,7 +62,8 @@ function nextPatternName(list: GPattern[]): string {
 }
 
 export function GraphExplorer({
-  nodes, edges, layout, patterns: initialPatterns, routes, overallRoute, panel, initialFocusId, stats,
+  nodes, edges: allEdges, layout, patterns: initialPatterns, routes: allRoutes, overallRoute: allOverall,
+  panel: allPanel, initialFocusId, stats: allStats,
 }: {
   nodes: GNode[];
   edges: GEdge[];
@@ -83,6 +88,65 @@ export function GraphExplorer({
   const performingRef = useRef(performing);
 
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+
+  /* ---------- 除外条件（/play と同じもの・端末に1つ） ---------- */
+  /**
+   * 条件で外れた繋ぎは**描かない**。最長ルート・「最大◯曲」・選択パネルの一覧・統計も、
+   * 残った繋ぎだけで端末が数え直す（外した繋ぎを通った数が残ると、並びも光る道筋も嘘になる）。
+   * 配置（座標）は条件で変えない: 敷き直しや自動保存は全部の繋ぎ（`allEdges`）で決める。
+   * 条件は `/play` と共通で、どちらで変えても両方に効く
+   */
+  const [filter, setFilter] = useStoredFilter();
+  const filtering = isFiltering(filter);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const edges = useMemo(
+    () => (filtering ? allEdges.filter((e) => passesFilter(filter, e, nodeById.get(e.target))) : allEdges),
+    [allEdges, filter, filtering, nodeById],
+  );
+  const { routes, overallRoute } = useMemo(() => {
+    if (!filtering) return { routes: allRoutes, overallRoute: allOverall };
+    const outgoing = new Map<string, GEdge[]>();
+    for (const e of edges) (outgoing.get(e.source) ?? outgoing.set(e.source, []).get(e.source)!).push(e);
+    const next = new Map<string, { toTrackId: string; id: string }[]>();
+    for (const [id, list] of outgoing) next.set(id, list.map((e) => ({ toTrackId: e.target, id: e.id })));
+    const songOf = (id: string) => nodeById.get(id)?.songId ?? id;
+    const routes: RouteMap = {};
+    let overall = { trackIds: [] as string[], edgeIds: [] as string[] };
+    for (const n of nodes) {
+      const r = maxOnwardFrom(next, songOf, n.id, new Set());
+      routes[n.id] = { trackIds: r.trackIds, edgeIds: r.edges.map((e) => e.id) };
+      if (r.trackIds.length > overall.trackIds.length) overall = routes[n.id];
+    }
+    return { routes, overallRoute: overall };
+  }, [filtering, allRoutes, allOverall, edges, nodes, nodeById]);
+  const panel = useMemo(() => {
+    if (!filtering) return allPanel;
+    const kept = new Set(edges.map((e) => e.id));
+    const out: PanelData = {};
+    for (const [id, p] of Object.entries(allPanel)) {
+      const bpm = nodeById.get(id)?.bpm ?? null;
+      const near = (b: number | null) => Math.abs(bpmDelta(bpm, b) ?? 999);
+      const redo = (list: PanelData[string]["out"]) =>
+        list
+          .filter((t) => kept.has(t.id))
+          .map((t) => ({ ...t, otherMaxFrom: routes[t.otherId]?.trackIds.length ?? 1 }))
+          // 並びはサーバと同じ（先の長い順 → テンポが近い順 → 曲名 → ID）
+          .sort(
+            (a, b) =>
+              b.otherMaxFrom - a.otherMaxFrom ||
+              near(a.otherBpm) - near(b.otherBpm) ||
+              a.otherName.localeCompare(b.otherName, "ja") ||
+              a.id.localeCompare(b.id),
+          );
+      out[id] = { out: redo(p.out), in: redo(p.in) };
+    }
+    return out;
+  }, [filtering, allPanel, edges, routes, nodeById]);
+  const stats = useMemo(() => {
+    if (!filtering) return allStats;
+    const ids = new Set(edges.flatMap((e) => [e.source, e.target]));
+    return { connected: ids.size, transitions: edges.length, longest: overallRoute.trackIds.length };
+  }, [filtering, allStats, edges, overallRoute]);
   const degree = useCallback(
     (id: string) => (nodeById.get(id)?.out ?? 0) + (nodeById.get(id)?.in ?? 0),
     [nodeById],
@@ -119,7 +183,14 @@ export function GraphExplorer({
   const [patterns, setPatterns] = useState(initialPatterns);
   const [activeId, setActiveId] = useState<string | null>(initialPatterns[0]?.id ?? null);
   /** 引き出しの中で「既定から変えているもの」があるか。閉じていても取っ手に点を出す */
-  const toolsActive = routeMode !== "off" || showIsolated || multiMode || moveSet.size > 0;
+  const toolsActive = routeMode !== "off" || showIsolated || multiMode || moveSet.size > 0 || filtering;
+  /** 条件の画面に並べるジャンルと My Tag = 繋ぎの行き先になっている曲のもの（`/play` と同じ） */
+  const filterOptions = useMemo(() => {
+    const dests = [...new Set(allEdges.map((e) => e.target))]
+      .map((id) => nodeById.get(id))
+      .filter((n): n is GNode => !!n);
+    return filterChoices(dests, filter);
+  }, [allEdges, nodeById, filter]);
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // 「曲が増減したとき何を敷き直すか」を effect から読むための控え。更新は操作時だけ
@@ -211,10 +282,10 @@ export function GraphExplorer({
       }
     }
     // ラベルの箱を作るので label を渡す（サーバの計算と同じ規則で重なりを解く）
-    if (!placed) settle(sim, nodes.map((n) => ({ id: n.id, label: n.name })), edges, 200);
+    if (!placed) settle(sim, nodes.map((n) => ({ id: n.id, label: n.name })), allEdges, 200);
     fitRef.current();
     tick();
-  }, [nodes, edges, layout]);
+  }, [nodes, allEdges, layout]);
 
   // 初回と、曲が増減したとき。開いているパターン（無ければ自動配置）を敷き直す
   useEffect(() => {
@@ -1181,7 +1252,28 @@ export function GraphExplorer({
           >
             未接続も表示
           </button>
+          {/* 除外条件。/play と同じ条件で、外れた繋ぎを地図から消す（Notion には何も書かないので data-edit なし） */}
+          <button
+            onClick={() => setFilterOpen((v) => !v)}
+            aria-expanded={filterOpen}
+            className={`tap rounded-full border px-4 text-[12px] backdrop-blur transition-colors ${
+              filtering ? "border-warn/50 bg-warn/10 text-warn" : "border-border bg-surface/90 text-fg-subtle hover:text-fg-muted"
+            }`}
+          >
+            {filtering ? `除外: ${filterSummary(filter)}` : "除外条件"}
+          </button>
         </div>
+        {filterOpen && (
+          <div className="max-h-[min(45vh,420px)] overflow-y-auto overscroll-contain rounded-card md:w-[420px]">
+            <FilterPanel
+              filter={filter}
+              genres={filterOptions.genres}
+              tagGroups={filterOptions.tagGroups}
+              onChange={setFilter}
+              onClose={() => setFilterOpen(false)}
+            />
+          </div>
+        )}
 
         {/* ── 配置パターン。整えた形に名前を付けて Notion に置く（端末をまたいで同じ形） ── */}
         <div className="flex flex-wrap items-center gap-1.5">
@@ -1334,7 +1426,7 @@ export function GraphExplorer({
               <h2 className="text-[18px] font-bold leading-tight break-words">{sel.name}</h2>
               <p className="mt-0.5 font-mono text-[12px] tabular-nums text-fg-muted">
                 {sel.bpm ?? "–"} BPM{sel.musicalKey && ` · ${sel.musicalKey}`}
-                <span className="text-hot"> · 最大{sel.maxFrom}曲</span>
+                <span className="text-hot"> · 最大{routes[sel.id]?.trackIds.length ?? sel.maxFrom}曲</span>
               </p>
             </div>
             <button
