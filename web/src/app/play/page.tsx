@@ -25,6 +25,8 @@ export default async function PlayPage({
   // 同じ道筋で「何分のセットになるか」も出す（曲を選ぶ一覧に添える）
   const maxFrom: Record<string, number> = {};
   const maxLength: Record<string, SetLength> = {};
+  /** その数を出した道筋（繋ぎID）。一覧で「最大◯曲」を開くと、この道筋を読める */
+  const maxRoute: Record<string, string[]> = {};
   const lookup = {
     durationSec: (id: string) => g.trackById.get(id)?.durationSec ?? null,
     bpm: (id: string) => g.trackById.get(id)?.bpm ?? null,
@@ -34,6 +36,7 @@ export default async function PlayPage({
     const r = longestRouteFrom(g, t.id);
     maxFrom[t.id] = r.trackIds.length;
     maxLength[t.id] = setLength(r.trackIds, r.transitions, lookup);
+    if (r.transitions.length > 0) maxRoute[t.id] = r.transitions.map((e) => e.id);
   }
 
   return (
@@ -43,6 +46,7 @@ export default async function PlayPage({
       transitions={g.transitions}
       maxFrom={maxFrom}
       maxLength={maxLength}
+      maxRoute={maxRoute}
       initialTrackId={from}
     />
   );

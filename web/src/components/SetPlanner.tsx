@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useDeferredValue, useMemo, useState } from "react";
 import { minutesLabel, setLength, timingOf } from "@/lib/duration";
-import { barsLabel, cueLabel } from "@/lib/format";
 import { filterSummary, isFiltering, passesFilter } from "@/lib/playFilter";
 import { readPlan } from "@/lib/playlog";
 import { planRoute } from "@/lib/route";
 import type { Cue, Track, Transition } from "@/lib/types";
 import { useStoredFilter } from "@/lib/useStoredFilter";
 import { useStoredPlan } from "@/lib/useStoredPlan";
+import { RouteSteps } from "./RouteSteps";
 
 /**
  * セットを組む（`/play/plan`）。**入れたい曲を選ぶと、それをなるべく多く通る道筋を出す。**
@@ -56,6 +56,7 @@ export function SetPlanner({
   /** 選んだ曲は端末が持つ（サーバで描く間は空）。消えた曲は数えない */
   const [stored, setStored] = useStoredPlan();
   const wanted = useMemo(() => stored.wanted.filter((id) => trackById.has(id)), [stored.wanted, trackById]);
+  const wantedSet = useMemo(() => new Set(wanted), [wanted]);
   /** 描き直しの前に続けて押されても取りこぼさないよう、書く直前の保存値から作る */
   const setWanted = (next: (cur: string[]) => string[]) => {
     const cur = readPlan();
@@ -146,31 +147,15 @@ export function SetPlanner({
               組み合わせが多く、途中で探すのを打ち切りました。少なくともこの曲数は通れます。
             </p>
           )}
-          <ol className="mt-3 space-y-1">
-            {plan.trackIds.map((id, i) => {
-              const t = trackById.get(id);
-              const via = i > 0 ? plan.edges[i - 1] : null;
-              const toCue = via ? cueLabel(cueById.get(via.toCueId)) : "";
-              const bars = via ? barsLabel(via, toCue) : null;
-              return (
-                <li key={`${id}-${i}`}>
-                  {via && (
-                    <p className="ml-7 border-l border-border py-1 pl-3 text-[12px] text-fg-subtle">
-                      {cueLabel(cueById.get(via.fromCueId))} → {toCue}
-                      {bars && ` · ${bars}`}
-                    </p>
-                  )}
-                  <div className="flex items-baseline gap-2">
-                    <span className="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-subtle">{i + 1}</span>
-                    <span className={`min-w-0 break-words text-[15px] ${wanted.includes(id) ? "font-semibold text-accent" : "text-fg-muted"}`}>
-                      {t?.name ?? "不明な曲"}
-                    </span>
-                    {!wanted.includes(id) && <span className="shrink-0 text-[11px] text-fg-subtle">挟む曲</span>}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+          <div className="mt-3">
+            <RouteSteps
+              trackIds={plan.trackIds}
+              edges={plan.edges}
+              trackById={trackById}
+              cueById={cueById}
+              marked={wantedSet}
+            />
+          </div>
           {missing.length > 0 && (
             <div className="mt-3 border-t border-border pt-2">
               <span className="label">入らなかった曲</span>

@@ -10,6 +10,7 @@ import { PracticeToggle } from "./PracticeToggle";
 import { FilterPanel } from "./FilterPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
+import { RouteSteps } from "./RouteSteps";
 import { TrackTimeline } from "./TrackTimeline";
 import { canFollow, minutesLabel, setLength, timingOf, type SetLength } from "@/lib/duration";
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
@@ -68,7 +69,7 @@ const markStale = () => {
 };
 
 export function PlayDeck({
-  tracks, cues, transitions, maxFrom, maxLength, initialTrackId,
+  tracks, cues, transitions, maxFrom, maxLength, maxRoute, initialTrackId,
 }: {
   tracks: Track[];
   cues: Cue[];
@@ -80,6 +81,8 @@ export function PlayDeck({
   maxFrom: Record<string, number>;
   /** `maxFrom` と同じ道筋で、何分のセットになるか（全長とカット後）。曲を選ぶ一覧に出す */
   maxLength: Record<string, SetLength>;
+  /** その数を出した道筋（繋ぎID）。曲を選ぶ一覧で「最大◯曲」を開くと読める */
+  maxRoute: Record<string, string[]>;
   initialTrackId: string | null;
 }) {
   const { on: performing } = usePerformance();
@@ -128,6 +131,7 @@ export function PlayDeck({
     () => transitions.map((t) => (patches[t.id] ? { ...t, ...patches[t.id] } : t)),
     [transitions, patches],
   );
+  const transitionById = useMemo(() => new Map(live.map((t) => [t.id, t])), [live]);
   const patch = (id: string, p: Partial<Pick<Transition, "rating" | "practice" | "comment">>) => {
     setPatches((cur) => ({ ...cur, [id]: { ...cur[id], ...p } }));
     markStale();
@@ -368,14 +372,16 @@ export function PlayDeck({
     if (!pickerOpen || !filtering) return null;
     const max: Record<string, number> = {};
     const length: Record<string, SetLength> = {};
+    const route: Record<string, string[]> = {};
     const truncated = new Set<string>();
     for (const t of tracks) {
       const r = maxOnwardFrom(usable, songOf, t.id, new Set(), timing);
       max[t.id] = r.count;
       length[t.id] = setLength(r.trackIds, r.edges, lengthLookup);
+      if (r.edges.length > 0) route[t.id] = r.edges.map((e) => e.id);
       if (r.truncated) truncated.add(t.id);
     }
-    return { max, length, truncated };
+    return { max, length, route, truncated };
   }, [pickerOpen, filtering, tracks, usable, songOf, lengthLookup, timing]);
 
   /** 除外条件のボタンと設定。プレイ中のヘッダと、曲を選ぶ一覧の両方に置く */
@@ -408,6 +414,10 @@ export function PlayDeck({
         tracks={tracks}
         maxFrom={filteredCounts?.max ?? maxFrom}
         maxLength={filteredCounts?.length ?? maxLength}
+        maxRoute={filteredCounts?.route ?? maxRoute}
+        transitionById={transitionById}
+        trackById={trackById}
+        cueById={cueById}
         truncated={filteredCounts?.truncated ?? null}
         filterButton={filterButton}
         filterPanel={filterPanel}
@@ -816,11 +826,16 @@ export function PlayDeck({
 function StartPicker({
   tracks, maxFrom, maxLength, truncated, filterButton, filterPanel,
   usedSongs, playedIds, skipsTrack, filtering, mode, onPick, onCancel,
+  maxRoute, transitionById, trackById, cueById,
 }: {
   tracks: Track[];
   /** 除外条件が入っていれば、条件を通る繋ぎだけで数え直した数 */
   maxFrom: Record<string, number>;
   maxLength: Record<string, SetLength>;
+  maxRoute: Record<string, string[]>;
+  transitionById: ReadonlyMap<string, Transition>;
+  trackById: ReadonlyMap<string, Track>;
+  cueById: ReadonlyMap<string, Cue>;
   /** 端末で数え直したときに探索を打ち切った曲（数は下限 =「以上」を付ける）。サーバの数なら null */
   truncated: ReadonlySet<string> | null;
   filterButton: React.ReactNode;
@@ -843,6 +858,8 @@ function StartPicker({
   onCancel: (() => void) | null;
 }) {
   const [q, setQ] = useState("");
+  /** 「最大◯曲」を開いている曲。開くのは1曲ずつ（84曲ぶん開くと一覧が読めなくなる） */
+  const [openId, setOpenId] = useState<string | null>(null);
   const shown = useMemo(() => {
     const query = q.trim().toLowerCase();
     const words = query.split(/\s+/).filter(Boolean);
@@ -914,10 +931,20 @@ function StartPicker({
       />
       <ul className="mt-3 space-y-1.5">
         {shown.map((t) => (
-          <li key={t.id}>
+          <li
+            key={t.id}
+            className={`rounded-card border bg-surface transition-colors ${
+              openId === t.id ? "border-border-bright" : "border-border hover:border-border-bright"
+            }`}
+          >
+            {/*
+              曲名を押すと選ぶ、右の数字を押すとその道筋が開く。ボタンの中にボタンは置けないので、
+              1枚のカードの中で2つに分けている
+            */}
+            <div className="flex items-stretch">
             <button
               onClick={() => onPick(t.id)}
-              className="tap flex w-full items-center gap-3 rounded-card border border-border bg-surface px-3.5 py-1.5 text-left transition-colors hover:border-border-bright"
+              className="tap flex min-w-0 flex-1 items-center py-1.5 pl-3.5 pr-2 text-left"
             >
               <span className="min-w-0 flex-1 break-words text-[15px]">
                 {t.name}
@@ -933,15 +960,23 @@ function StartPicker({
                   </span>
                 )}
               </span>
-              {/*
-                右の数字は幅を決めて右に揃え、2段に積む。横に並べていたときは中身で幅が変わり、
-                行ごとに右端がずれたうえ、曲名が 120px 前後に押し込まれて3〜4行に割れていた
-              */}
-              <span className="flex w-[5.5rem] shrink-0 flex-col items-end gap-0.5 whitespace-nowrap text-right font-mono text-[11px] tabular-nums">
+            </button>
+            {/*
+              右の数字は幅を決めて右に揃え、2段に積む。横に並べていたときは中身で幅が変わり、
+              行ごとに右端がずれたうえ、曲名が 120px 前後に押し込まれて3〜4行に割れていた
+            */}
+            <button
+              onClick={() => maxRoute[t.id] && setOpenId((cur) => (cur === t.id ? null : t.id))}
+              disabled={!maxRoute[t.id]}
+              aria-expanded={openId === t.id}
+              title="押すと、この数を出した道筋が開きます"
+              className="tap flex w-[6.25rem] shrink-0 flex-col items-end justify-center gap-0.5 whitespace-nowrap py-1.5 pl-1 pr-3.5 text-right font-mono text-[11px] tabular-nums"
+            >
                 <span className={(maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"}>
                   {(maxFrom[t.id] ?? 1) > 1
                     ? `最大${maxFrom[t.id]}曲${truncated?.has(t.id) ? "以上" : ""}`
                     : "行き止まり"}
+                  {maxRoute[t.id] && <span className="ml-0.5">{openId === t.id ? "▴" : "▾"}</span>}
                 </span>
                 {/* その道筋を流したら何分か。上がカット後、下が曲を頭から最後まで流した全長 */}
                 {(maxFrom[t.id] ?? 1) > 1 && maxLength[t.id] && (
@@ -953,8 +988,24 @@ function StartPicker({
                 <span className="text-fg-subtle">
                   {t.bpm ?? "–"} {t.musicalKey}
                 </span>
-              </span>
             </button>
+            </div>
+            {openId === t.id && maxRoute[t.id] && (
+              <div className="border-t border-border px-3.5 pb-3 pt-2">
+                <RouteSteps
+                  trackIds={[t.id, ...maxRoute[t.id].map((id) => transitionById.get(id)?.toTrackId ?? "?")]}
+                  edges={maxRoute[t.id].map((id) => transitionById.get(id)).filter((e): e is Transition => !!e)}
+                  trackById={trackById}
+                  cueById={cueById}
+                />
+                <button
+                  onClick={() => onPick(t.id)}
+                  className="tap mt-2.5 flex w-full items-center justify-center rounded-card border border-hot/50 bg-hot/12 text-[13.5px] font-semibold text-hot"
+                >
+                  {mode === "jump" ? "この曲へ移る" : "この曲から始める"}
+                </button>
+              </div>
+            )}
           </li>
         ))}
         {shown.length === 0 && (
