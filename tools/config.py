@@ -8,12 +8,14 @@
   1. 環境変数
        NOTION_TOKEN
        NOTION_DB_TRACKS / NOTION_DB_CUES / NOTION_DB_TRANSITIONS / NOTION_DB_LAYOUTS
+       NOTION_DB_PLAYLISTS（任意。🎶Playlists を使うときだけ）
        REKORDBOX_FOLDER_FILTER / REKORDBOX_PRIORITY_PLAYLIST
   2. ~/.config/rekord_graph/config.json
        {
          "notion": {
            "token": "ntn_...",                      # 省略可（notion_token ファイルでもよい）
-           "databases": {"tracks": "...", "cues": "...", "transitions": "...", "layouts": "..."}
+           "databases": {"tracks": "...", "cues": "...", "transitions": "...", "layouts": "...",
+                         "playlists": "..."}         # playlists は任意
          },
          "rekordbox": {
            "folderFilter": "DJ_songs",              # 省略可。このパス片を含む曲だけ扱う
@@ -36,6 +38,9 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 TOKEN_FILE = CONFIG_DIR / "notion_token"
 
 DB_KEYS = ("tracks", "cues", "transitions", "layouts")
+# 後から足した DB。**無くても他のツール（sync など）は動く**ので、必須の検査には入れない。
+# `tools/setup_notion.py --add playlists` で作る
+OPTIONAL_DB_KEYS = ("playlists",)
 
 
 class ConfigError(RuntimeError):
@@ -72,6 +77,10 @@ def notion_databases(require: bool = True) -> dict[str, str]:
     out = {}
     for key in DB_KEYS:
         out[key] = os.environ.get(f"NOTION_DB_{key.upper()}") or from_file.get(key) or ""
+    for key in OPTIONAL_DB_KEYS:
+        found = os.environ.get(f"NOTION_DB_{key.upper()}") or from_file.get(key)
+        if found:
+            out[key] = found
     missing = [k for k in DB_KEYS if not out[k]]
     if require and missing:
         raise ConfigError(

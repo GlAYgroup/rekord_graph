@@ -13,6 +13,7 @@ const VERSION = "2022-06-28";
 /**
  * 設定の在り処（上が優先）:
  *   1. 環境変数 NOTION_TOKEN / NOTION_DB_TRACKS / NOTION_DB_CUES / NOTION_DB_TRANSITIONS / NOTION_DB_LAYOUTS
+ *      / NOTION_DB_PLAYLISTS（任意。無ければプレイリストの画面だけが「未設定」になる）
  *      （Vercel ではこれを使う）
  *   2. ~/.config/rekord_graph/config.json（ローカル開発。tools/ と同じファイル。`tools/setup_notion.py` が書く）
  *   3. ~/.config/rekord_graph/notion_token（トークンだけ）
@@ -36,10 +37,20 @@ function localConfig(): LocalConfig | null {
   return localConfigCache;
 }
 
-export type DbKey = "tracks" | "cues" | "transitions" | "layouts";
+export type DbKey = "tracks" | "cues" | "transitions" | "layouts" | "playlists";
+
+function findDbId(key: DbKey): string | undefined {
+  return process.env[`NOTION_DB_${key.toUpperCase()}`] || localConfig()?.notion?.databases?.[key];
+}
+
+/**
+ * 後から足した DB（🎶Playlists）が設定されているか。無くても他の画面は動かすので、
+ * その DB を使う画面だけがこれを見て「未設定」を出す（例外で 500 にしない）
+ */
+export const hasDb = (key: DbKey): boolean => !!findDbId(key);
 
 function dbId(key: DbKey): string {
-  const id = process.env[`NOTION_DB_${key.toUpperCase()}`] || localConfig()?.notion?.databases?.[key];
+  const id = findDbId(key);
   if (!id) {
     throw new Error(
       `Notion の database ID（${key}）が設定されていません。` +
@@ -50,8 +61,8 @@ function dbId(key: DbKey): string {
 }
 
 /**
- * 🎵Tracks / 📍Cues / 🔀Transitions / 🗺️Layouts の database ID。
- * 🗺️Layouts と 🔀Transitions だけがこのアプリの書き込み先。
+ * 🎵Tracks / 📍Cues / 🔀Transitions / 🗺️Layouts / 🎶Playlists の database ID。
+ * 🗺️Layouts・🔀Transitions・🎶Playlists の3つだけがこのアプリの書き込み先。
  * 🎵Tracks / 📍Cues は rekordbox の鏡なので書かない（書くと sync.py と喧嘩する）。
  */
 export const DB = {
@@ -59,6 +70,8 @@ export const DB = {
   get cues() { return dbId("cues"); },
   get transitions() { return dbId("transitions"); },
   get layouts() { return dbId("layouts"); },
+  /** 任意。使う前に `hasDb("playlists")` を見る */
+  get playlists() { return dbId("playlists"); },
 };
 
 /** Notion の更新をどれくらいで拾うか。DJ 練習後に書いて数分で反映されれば十分。 */

@@ -119,6 +119,19 @@ Vercel に置くなら、`web/` をルートにしてデプロイし、[`web/.en
 
 「状態」画面（`/health`）で、参照が壊れた繋ぎや要確認の行が分かる。
 
+### イベントのプレイリストを rekordbox に書き出す
+
+アプリの「プレイリスト」（`/playlists`。Notion の 🎶Playlists）で作ったものを rekordbox に作る。
+rekordbox の `rekord_graph` フォルダの中だけを触り、同じ名前があれば中身を入れ替える（番号 = アプリの並び順）。
+
+```bash
+./.venv/bin/python tools/rb_playlist.py          # 何が変わるかを見るだけ
+./.venv/bin/python tools/rb_playlist.py --apply  # rekordbox を終了してから
+```
+
+🎶Playlists の DB は後から足したもの。無ければ `./.venv/bin/python tools/setup_notion.py --add playlists --write` で
+今ある DB と同じページに作る（Vercel には `NOTION_DB_PLAYLISTS` を足す）。
+
 ### バックアップ（iCloud Drive に同期）
 
 ```bash
@@ -140,7 +153,8 @@ rekordbox の起動中はスキップする。戻し方はスクリプト冒頭�
   "notion": {
     "token": "ntn_...",
     "databases": {
-      "tracks": "...", "cues": "...", "transitions": "...", "layouts": "..."
+      "tracks": "...", "cues": "...", "transitions": "...", "layouts": "...",
+      "playlists": "..."
     }
   },
   "rekordbox": {
@@ -154,6 +168,7 @@ rekordbox の起動中はスキップする。戻し方はスクリプト冒頭�
 |---|---|
 | `NOTION_TOKEN` | Integration のトークン（`notion_token` ファイルでも可） |
 | `NOTION_DB_TRACKS` / `NOTION_DB_CUES` / `NOTION_DB_TRANSITIONS` / `NOTION_DB_LAYOUTS` | 各 DB の database ID |
+| `NOTION_DB_PLAYLISTS` | 🎶Playlists の database ID（任意。無ければプレイリストの画面だけが「未設定」） |
 | `REKORDBOX_DIR` | master.db の場所（既定: macOS `~/Library/Pioneer/rekordbox`、Windows `%APPDATA%\Pioneer\rekordbox`） |
 | `REKORDBOX_FOLDER_FILTER` / `REKORDBOX_PRIORITY_PLAYLIST` | `rekordbox.*` と同じ |
 | `REKORD_GRAPH_CONFIG_DIR` | 設定ディレクトリを変える（既定: `~/.config/rekord_graph`） |

@@ -10,6 +10,7 @@ import type { Cue, Track, Transition } from "@/lib/types";
 import { useStoredFilter } from "@/lib/useStoredFilter";
 import { useStoredPlan } from "@/lib/useStoredPlan";
 import { RouteSteps } from "./RouteSteps";
+import { SaveAsPlaylist } from "./SaveAsPlaylist";
 
 /**
  * セットを組む（`/play/plan`）。**入れたい曲を選ぶと、それをなるべく多く通る道筋を出す。**
@@ -177,6 +178,15 @@ export function SetPlanner({
             >
               この順で /play を始める →
             </Link>
+          )}
+          {plan.trackIds.length > 1 && !stale && (
+            <SaveAsPlaylist
+              key={plan.edges.map((e) => e.id).join(",")}
+              trackIds={plan.trackIds}
+              edges={plan.edges}
+              trackById={trackById}
+              defaultName={`${trackById.get(plan.trackIds[0])?.name ?? ""} 始まり ${plan.trackIds.length}曲`}
+            />
           )}
         </section>
       )}

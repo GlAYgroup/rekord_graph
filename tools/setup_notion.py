@@ -99,6 +99,18 @@ def schema_layouts() -> dict:
     return {"名前": title(), "配置": text(), "曲数": number()}
 
 
+def schema_playlists() -> dict:
+    # イベントごとのプレイリスト。アプリ（/playlists）が書き、`tools/rb_playlist.py` が rekordbox へ書き出す
+    return {
+        "名前": title(),
+        "日付": {"date": {}},
+        "曲": text(),      # rekordbox の ContentID を並び順に空白区切り（Notion を作り直しても残る）
+        "繋ぎ": text(),    # 曲と曲の間の 🔀Transitions のページID。記録に無い間は「-」。曲数 − 1 個
+        "曲数": number(),
+        "メモ": text(),
+    }
+
+
 def parse_page_id(s: str) -> str:
     """URL でも ID でも受ける。末尾の 32 桁 hex を拾ってハイフン区切りにする。"""
     m = re.findall(r"[0-9a-fA-F]{32}", s.replace("-", ""))
@@ -119,12 +131,39 @@ def create_db(parent: str, name: str, emoji: str, props: dict) -> str:
     return res["id"]
 
 
+def add_optional(key: str, write: bool) -> int:
+    """🎶Playlists のように後から足した DB を、既存の DB と同じ親ページに1つだけ作る。"""
+    dbs = config.notion_databases()
+    if dbs.get(key):
+        print(f"設定に {key} の database ID が既にあります: {dbs[key]}", file=sys.stderr)
+        return 2
+    layouts = na.request("GET", f"/databases/{dbs['layouts']}")
+    parent = (layouts.get("parent") or {}).get("page_id")
+    if not parent:
+        print("🗺️Layouts の親ページが分かりません（ページ直下ではない）。", file=sys.stderr)
+        return 1
+    new_id = create_db(parent, "Playlists", "🎶", schema_playlists())
+    if write:
+        print(f"書きました: {config.write_config({'notion': {'databases': {**dbs, key: new_id}}})}")
+    else:
+        print(f"{config.CONFIG_FILE} の notion.databases に \"{key}\": \"{new_id}\" を足してください（--write で自動）")
+    print(f"Vercel に置く環境変数: NOTION_DB_{key.upper()}={new_id}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--parent", required=True, help="DB を作る親ページの URL か ID（Integration に接続済みであること）")
+    ap.add_argument("--parent", help="DB を作る親ページの URL か ID（Integration に接続済みであること）")
     ap.add_argument("--write", action="store_true", help=f"{config.CONFIG_FILE} に database ID を書く")
     ap.add_argument("--force", action="store_true", help="設定に database ID が既にあっても作る")
+    ap.add_argument("--add", choices=["playlists"],
+                    help="後から足した DB だけを、今ある DB と同じ親ページに作る（--parent は要らない）")
     args = ap.parse_args()
+
+    if args.add:
+        return add_optional(args.add, args.write)
+    if not args.parent:
+        ap.error("--parent が要ります（DB を最初に作るとき）")
 
     existing = config.notion_databases(require=False)
     if any(existing.values()) and not args.force:

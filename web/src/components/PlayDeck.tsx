@@ -11,6 +11,7 @@ import { FilterPanel } from "./FilterPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
 import { RouteSteps } from "./RouteSteps";
+import { SaveAsPlaylist } from "./SaveAsPlaylist";
 import { TrackTimeline } from "./TrackTimeline";
 import { canFollow, minutesLabel, setLength, timingOf, type SetLength } from "@/lib/duration";
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
@@ -915,6 +916,14 @@ function StartPicker({
       )}
       {mode === "start" && (
         <Link
+          href="/playlists"
+          className="tap mt-2 flex items-center justify-center rounded-card border border-accent/45 bg-accent/10 text-center text-[13px] text-accent transition-colors hover:border-accent"
+        >
+          イベントのプレイリスト →
+        </Link>
+      )}
+      {mode === "start" && (
+        <Link
           href="/play/history"
           className="tap mt-3 flex items-center justify-center rounded-card border border-border bg-surface text-center text-[13px] text-fg-muted transition-colors hover:border-border-bright hover:text-fg"
         >
@@ -1004,6 +1013,12 @@ function StartPicker({
                 >
                   {mode === "jump" ? "この曲へ移る" : "この曲から始める"}
                 </button>
+                <SaveAsPlaylist
+                  trackIds={[t.id, ...maxRoute[t.id].map((id) => transitionById.get(id)?.toTrackId ?? "?")]}
+                  edges={maxRoute[t.id].map((id) => transitionById.get(id)).filter((e): e is Transition => !!e)}
+                  trackById={trackById}
+                  defaultName={`${t.name} 始まり 最大${maxRoute[t.id].length + 1}曲`}
+                />
               </div>
             )}
           </li>
