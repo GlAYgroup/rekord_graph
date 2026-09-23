@@ -4,6 +4,7 @@ import { CuePad, LoopTag } from "@/components/CuePad";
 import { PracticeToggle } from "@/components/PracticeToggle";
 import { RatingPicker } from "@/components/RatingPicker";
 import { TransitionCard } from "@/components/TransitionCard";
+import { TransitionDetails } from "@/components/TransitionDetails";
 import { cueLabel } from "@/lib/format";
 import { bpmDelta, formatPosition, getGraph, type Graph, type Transition } from "@/lib/graph";
 import { longestRouteFrom } from "@/lib/route";
@@ -179,6 +180,11 @@ export default async function TrackPage({
                           {from?.bpm ?? "–"}
                         </span>
                       </Link>
+                      <TransitionDetails
+                        transition={t}
+                        toCueLabel={cueLabel(g.cueById.get(t.toCueId))}
+                        className="border-t border-border px-3 py-2"
+                      />
                       {/* 入ってくる側の繋ぎも、ここで星を付け替え・キューを直せる */}
                       <div data-edit className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-1">
                         <RatingPicker id={t.id} value={t.rating} size="sm" className="ml-auto" />

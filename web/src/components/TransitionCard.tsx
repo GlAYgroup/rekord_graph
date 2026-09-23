@@ -4,7 +4,8 @@ import { PracticeToggle } from "./PracticeToggle";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
-import { barsLabel, cueLabel } from "@/lib/format";
+import { TransitionDetails } from "./TransitionDetails";
+import { cueLabel } from "@/lib/format";
 import type { Cue, Track, Transition } from "@/lib/types";
 
 export function TransitionCard({
@@ -84,21 +85,7 @@ export function TransitionCard({
           <TrackTimeline durationSec={bottom.dur} cues={bottom.cues} highlightCueId={bottom.cue?.id ?? ""} mode="enter" />
         </div>
 
-        {(transition.comment || transition.technique || barsLabel(transition, cueLabel(toCue))) && (
-          <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-fg-muted">
-            {transition.technique && (
-              <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
-                {transition.technique}
-              </span>
-            )}
-            {barsLabel(transition, cueLabel(toCue)) && (
-              <span className="text-[11px] text-fg-subtle tabular-nums">
-                {barsLabel(transition, cueLabel(toCue))}
-              </span>
-            )}
-            {transition.comment && <span className="min-w-0 break-words">{transition.comment}</span>}
-          </p>
-        )}
+        <TransitionDetails transition={transition} toCueLabel={cueLabel(toCue)} className="mt-3" />
 
         {transition.needsReview && (
           <p className="mt-2 text-[13px] text-warn">⚠ rekordbox とズレている可能性があります</p>
