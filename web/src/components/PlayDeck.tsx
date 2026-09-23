@@ -7,17 +7,20 @@ import { CommentEditor } from "./CommentEditor";
 import { CueLine } from "./CuePad";
 import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
+import { FilterPanel } from "./FilterPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
 import { minutesLabel, setLength, type SetLength } from "@/lib/duration";
-import { barsLabel, bpmDelta, cueLabel, genreKey } from "@/lib/format";
-import { DIFFICULTIES, DIFFICULTY_LABEL, difficultyRank, type Difficulty } from "@/lib/difficulty";
+import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
+import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import {
   archive, NO_FILTER, readCurrent, readFilter, writeCurrent, writeFilter,
   type PlayFilter, type PlayStep,
 } from "@/lib/playlog";
-import { RATINGS, starCount } from "@/lib/ratings";
+import {
+  filterChoices, filterSummary, isFiltering, passesFilter, skipsTrack as skipsTrackBy,
+} from "@/lib/playFilter";
 import { maxOnwardFrom } from "@/lib/route";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -143,9 +146,7 @@ export function PlayDeck({
   }, [router]);
   /** コメント欄を開いている繋ぎ。複数開ける（別のカードの欄を開いても、書きかけを消さない） */
   const [commenting, setCommenting] = useState<ReadonlySet<string>>(() => new Set());
-  const filtering =
-    filter.maxDifficulty !== null || filter.minStars > 0 || filter.skipPractice ||
-    filter.skipGenres.length > 0 || filter.skipTags.length > 0;
+  const filtering = isFiltering(filter);
 
   const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks]);
   const cueById = useMemo(() => new Map(cues.map((c) => [c.id, c])), [cues]);
@@ -212,88 +213,20 @@ export function PlayDeck({
    */
   /**
    * ジャンル・My Tag の条件で外す曲か。繋ぎの判定（行き先の曲）と、曲を選ぶ一覧の
-   * 並び（外した曲は印を付けて後ろへ）の両方で使う。**未入力は外さない**
+   * 並び（外した曲は印を付けて後ろへ）の両方で使う。判定は `lib/playFilter.ts`
    */
-  const skipsTrack = useMemo(() => {
-    const skipGenres = new Set(filter.skipGenres);
-    const skipTags = new Set(filter.skipTags);
-    return (to: Track | undefined) => {
-      if (skipGenres.size > 0) {
-        const g = genreKey(to?.genre ?? "");
-        if (g && skipGenres.has(g)) return true;
-      }
-      return skipTags.size > 0 && !!to?.myTags.some((tag) => skipTags.has(tag));
-    };
-  }, [filter.skipGenres, filter.skipTags]);
-  const passes = useMemo(() => {
-    const maxRank = difficultyRank(filter.maxDifficulty);
-    return (t: Transition) => {
-      if (filter.skipPractice && t.practice) return false;
-      if (skipsTrack(trackById.get(t.toTrackId))) return false;
-      const rank = difficultyRank(t.difficulty);
-      if (maxRank > 0 && rank > maxRank) return false;
-      const stars = starCount(t.rating);
-      if (filter.minStars > 0 && stars > 0 && stars < filter.minStars) return false;
-      return true;
-    };
-  }, [filter, trackById, skipsTrack]);
-  /**
-   * 除外条件に出すジャンル = **繋ぎの行き先になっている曲**のジャンルだけ（外して意味があるもの）。
-   * 表記ゆれは `genreKey` で束ね、見出しは一番多い書き方を使う。曲の多い順
-   */
-  const genres = useMemo(() => {
-    const byKey = new Map<string, { key: string; count: number; spellings: Map<string, number> }>();
-    const seen = new Set<string>();
-    for (const t of live) {
-      if (seen.has(t.toTrackId)) continue;
-      seen.add(t.toTrackId);
-      const raw = trackById.get(t.toTrackId)?.genre ?? "";
-      const key = genreKey(raw);
-      if (!key) continue;
-      const e = byKey.get(key) ?? { key, count: 0, spellings: new Map() };
-      e.count += 1;
-      e.spellings.set(raw, (e.spellings.get(raw) ?? 0) + 1);
-      byKey.set(key, e);
-    }
-    // 外したまま曲が消えた（ジャンルを直した）ものも、外せるように残す
-    for (const key of filter.skipGenres) {
-      if (!byKey.has(key)) byKey.set(key, { key, count: 0, spellings: new Map([[key, 1]]) });
-    }
-    return [...byKey.values()]
-      .map((e) => ({
-        key: e.key,
-        count: e.count,
-        label: [...e.spellings].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0],
-      }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ja"));
-  }, [live, trackById, filter.skipGenres]);
-
-  /**
-   * My Tag をカテゴリごとに（`原曲` → アニメ・VOCALOID…）。ジャンルと同じく、
-   * 繋ぎの行き先になっている曲に付いているものだけ。曲の多い順
-   */
-  const tagGroups = useMemo(() => {
-    const count = new Map<string, number>();
-    const seen = new Set<string>();
-    for (const t of live) {
-      if (seen.has(t.toTrackId)) continue;
-      seen.add(t.toTrackId);
-      for (const tag of trackById.get(t.toTrackId)?.myTags ?? []) count.set(tag, (count.get(tag) ?? 0) + 1);
-    }
-    for (const tag of filter.skipTags) if (!count.has(tag)) count.set(tag, 0);
-    const groups = new Map<string, { key: string; label: string; count: number }[]>();
-    for (const [tag, n] of count) {
-      const cut = tag.indexOf("/");
-      const cat = tag.slice(0, cut);
-      (groups.get(cat) ?? groups.set(cat, []).get(cat)!).push({ key: tag, label: tag.slice(cut + 1), count: n });
-    }
-    return [...groups]
-      .map(([category, tags]) => ({
-        category,
-        tags: tags.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ja")),
-      }))
-      .sort((a, b) => a.category.localeCompare(b.category, "ja"));
-  }, [live, trackById, filter.skipTags]);
+  const skipsTrack = useMemo(() => (to: Track | undefined) => skipsTrackBy(filter, to), [filter]);
+  const passes = useMemo(
+    () => (t: Transition) => passesFilter(filter, t, trackById.get(t.toTrackId)),
+    [filter, trackById],
+  );
+  /** 除外条件に出すジャンルと My Tag = 繋ぎの行き先になっている曲に付いているものだけ */
+  const { genres, tagGroups } = useMemo(() => {
+    const dests = [...new Set(live.map((t) => t.toTrackId))]
+      .map((id) => trackById.get(id))
+      .filter((t): t is Track => !!t);
+    return filterChoices(dests, filter);
+  }, [live, trackById, filter]);
 
   /** 条件で外した繋ぎを抜いた隣接。「この先◯曲」はこちらで数える */
   const usable = useMemo(() => {
@@ -999,161 +932,5 @@ function StartPicker({
           : <Link href="/" className="hover:text-fg-muted">一覧に戻る</Link>}
       </p>
     </main>
-  );
-}
-
-/** 除外条件を短く言う（ヘッダのボタンに出す）。`Middleまで・★★★以上` */
-function filterSummary(f: PlayFilter): string {
-  const parts: string[] = [];
-  if (f.maxDifficulty) parts.push(`${f.maxDifficulty}まで`);
-  if (f.minStars > 0) parts.push(`${"★".repeat(f.minStars)}以上`);
-  if (f.skipPractice) parts.push("要練習なし");
-  if (f.skipGenres.length > 0) parts.push(`ジャンル${f.skipGenres.length}つ`);
-  if (f.skipTags.length > 0) parts.push(`タグ${f.skipTags.length}つ`);
-  return parts.join("・");
-}
-
-/**
- * 除外条件の設定。どちらも「ここまで使う」の1軸なので、以上/以下を読ませずに
- * 選択肢そのものに言い切らせる（「全部」「Middle まで」「Easy だけ」）。
- * 未入力の繋ぎはどの条件でも外さない。
- */
-function FilterPanel({
-  filter, genres, tagGroups, onChange, onClose,
-}: {
-  filter: PlayFilter;
-  /** 選べるジャンル（`genreKey` で束ねたもの）と、それを行き先に持つ曲の数 */
-  genres: { key: string; label: string; count: number }[];
-  /** My Tag のカテゴリごとの選択肢（`原曲` → アニメ・VOCALOID…） */
-  tagGroups: { category: string; tags: { key: string; label: string; count: number }[] }[];
-  onChange: (f: PlayFilter) => void;
-  onClose: () => void;
-}) {
-  const chip = (on: boolean) =>
-    `tap rounded-full border px-3.5 text-[13px] transition-colors ${
-      on ? "border-accent/60 bg-accent/12 text-accent" : "border-border bg-surface text-fg-muted hover:text-fg"
-    }`;
-  const difficultyChoices: { value: string | null; label: string }[] = [
-    { value: null, label: "全部" },
-    ...DIFFICULTIES.slice(0, -1).reverse().map((d, i, arr) => ({
-      value: d,
-      label: i === arr.length - 1 ? `${d} だけ` : `${d} まで`,
-    })),
-  ];
-  const starChoices = [0, ...RATINGS.slice(1).map((_, i) => i + 2)];
-
-  return (
-    <section className="mt-3 space-y-3 rounded-card border border-border bg-surface p-3">
-      <div>
-        <span className="label">難易度 · 難しい繋ぎを外す</span>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {difficultyChoices.map((c) => (
-            <button
-              key={c.label}
-              onClick={() => onChange({ ...filter, maxDifficulty: c.value })}
-              className={chip(filter.maxDifficulty === c.value)}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <span className="label">評価 · 星の少ない繋ぎを外す</span>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {starChoices.map((n) => (
-            <button
-              key={n}
-              onClick={() => onChange({ ...filter, minStars: n })}
-              className={chip(filter.minStars === n)}
-            >
-              {n === 0 ? "全部" : `${"★".repeat(n)} 以上`}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <span className="label">要練習</span>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          <button
-            onClick={() => onChange({ ...filter, skipPractice: !filter.skipPractice })}
-            aria-pressed={filter.skipPractice}
-            className={chip(filter.skipPractice)}
-          >
-            {filter.skipPractice ? "要練習の繋ぎを外す" : "要練習の繋ぎも出す"}
-          </button>
-        </div>
-      </div>
-      {genres.length > 0 && (
-        <div>
-          <span className="label">ジャンル · 押したジャンルの曲へは繋がない</span>
-          <SkipChips
-            items={genres}
-            skipped={filter.skipGenres}
-            onChange={(skipGenres) => onChange({ ...filter, skipGenres })}
-          />
-        </div>
-      )}
-      {/* My Tag（rekordbox）。原曲の分類などカテゴリごとに並べる */}
-      {tagGroups.map((g) => (
-        <div key={g.category}>
-          <span className="label">{g.category} · 押したタグの曲へは繋がない</span>
-          <SkipChips
-            items={g.tags}
-            skipped={filter.skipTags}
-            onChange={(skipTags) => onChange({ ...filter, skipTags })}
-          />
-        </div>
-      ))}
-      <p className="text-[12px] leading-snug text-fg-subtle">
-        難易度・評価・ジャンル・タグが未入力のものは外しません。条件はこの端末に残り、リセットしても消えません。
-      </p>
-      <div className="flex gap-2">
-        <button
-          onClick={() => onChange(NO_FILTER)}
-          className="tap flex-1 rounded-card border border-border px-4 text-[13px] text-fg-muted hover:text-fg"
-        >
-          条件を外す
-        </button>
-        <button
-          onClick={onClose}
-          className="tap flex-1 rounded-card border border-border bg-surface-2 px-4 text-[13px] text-fg hover:border-border-bright"
-        >
-          閉じる
-        </button>
-      </div>
-    </section>
-  );
-}
-
-/** 押すと「外す」に切り替わるチップの列。ジャンルと My Tag で同じ形を使う */
-function SkipChips({
-  items, skipped, onChange,
-}: {
-  items: { key: string; label: string; count: number }[];
-  skipped: string[];
-  onChange: (skipped: string[]) => void;
-}) {
-  return (
-    <div className="mt-1.5 flex flex-wrap gap-1.5">
-      {items.map((g) => {
-        const off = skipped.includes(g.key);
-        return (
-          <button
-            key={g.key}
-            onClick={() => onChange(off ? skipped.filter((k) => k !== g.key) : [...skipped, g.key])}
-            aria-pressed={off}
-            className={`tap rounded-full border px-3 text-[13px] transition-colors ${
-              off
-                ? "border-warn/60 bg-warn/12 text-warn line-through"
-                : "border-border bg-surface text-fg-muted hover:text-fg"
-            }`}
-          >
-            {g.label}
-            <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">{g.count}</span>
-          </button>
-        );
-      })}
-    </div>
   );
 }
