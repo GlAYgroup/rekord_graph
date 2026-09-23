@@ -32,7 +32,6 @@ export default async function NewTransitionPage({
     bpm: t.bpm,
     musicalKey: t.musicalKey,
     cues: g.cuesByTrack.get(t.id) ?? [],
-    genre: t.genre,
     myTags: t.myTags,
   }));
 
@@ -76,8 +75,7 @@ export default async function NewTransitionPage({
       difficulty: t.difficulty,
       chain: t.chain,
       needsReview: t.needsReview,
-      // 除外条件（/play と同じ）で一覧を絞るため。行き先の曲のジャンルと My Tag
-      toGenre: g.trackById.get(t.toTrackId)?.genre ?? "",
+      // 一覧の絞り込み（行き先の曲の My Tag）用
       toMyTags: g.trackById.get(t.toTrackId)?.myTags ?? [],
     }));
 

@@ -8,10 +8,10 @@ import type { Cue } from "@/lib/types";
 import { barsLabel, chainLabel, cueLabel, formatPosition } from "@/lib/format";
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import { RATINGS } from "@/lib/ratings";
-import { filterChoices, filterReasons, filterSummary, isFiltering } from "@/lib/playFilter";
-import { useStoredFilter } from "@/lib/useStoredFilter";
 import { DifficultyPicker } from "./DifficultyPicker";
-import { FilterPanel } from "./FilterPanel";
+import {
+  isListFiltering, ListFilterPanel, listFilterSummary, matchesListFilter, NO_LIST_FILTER, type ListFilter,
+} from "./ListFilter";
 import { PracticeToggle } from "./PracticeToggle";
 import { RatingPicker } from "./RatingPicker";
 
@@ -31,8 +31,7 @@ export type FormTrack = {
   bpm: number | null;
   musicalKey: string;
   cues: Cue[];
-  /** 除外条件で登録済み一覧を絞るため（保存した行を手元で一覧に足すときに要る） */
-  genre: string;
+  /** 一覧の絞り込み（行き先の曲の My Tag）用。保存した行を手元で一覧に足すときに要る */
   myTags: string[];
 };
 
@@ -64,8 +63,7 @@ export type ListedTransition = {
   chain: string;
   /** sync が「rekordbox とズレているかも」と印を付けた行。この画面で保存し直すと外れる */
   needsReview: boolean;
-  /** 行き先の曲のジャンルと My Tag。除外条件（`lib/playFilter.ts`）で一覧を絞るのに使う */
-  toGenre: string;
+  /** 行き先の曲の My Tag。一覧の絞り込み（`ListFilter`）に使う */
   toMyTags: string[];
 };
 
@@ -249,7 +247,6 @@ export function TransitionForm({
         practice, chain,
         // 保存は同期ステータスを OK に書く（lib/transitions.ts の properties）= 印は外れる
         needsReview: false,
-        toGenre: toTrack.genre,
         toMyTags: toTrack.myTags,
       };
 
@@ -318,19 +315,15 @@ export function TransitionForm({
     URL を直に開ける以上、書ける画面が残っていては「編集できないモード」にならない。
   */
   /**
-   * 除外条件（/play と同じもの・端末に1つ）。一覧は**条件を通る繋ぎ = プレイで使える繋ぎ**だけを出し、
-   * 外れた分は「外れた繋ぎを見る」で理由の札つきで出す（直しに行けるように）。
-   * ここで条件を変えると /play にも効く（同じ条件を2か所で持たない）
+   * 一覧の絞り込み（`ListFilter`）。`/play` の除外条件とは別で、押した値そのものに一致する繋ぎだけを出す。
+   * 一括編集で値を変えた行は、条件から外れてもその場では消さない（押した指の先で行が消えると、
+   * 何が起きたか読めない）。`keptIds` がそれで、条件を変えたとき・一括編集を閉じたときに空にする
    */
-  const [filter, setFilter] = useStoredFilter();
-  const filtering = isFiltering(filter);
+  const [listFilter, setListFilterRaw] = useState<ListFilter>(NO_LIST_FILTER);
+  const [keptIds, setKeptIds] = useState<ReadonlySet<string>>(() => new Set());
+  const setListFilter = (f: ListFilter) => { setListFilterRaw(f); setKeptIds(new Set()); };
+  const listFiltering = isListFiltering(listFilter);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [showExcluded, setShowExcluded] = useState(false);
-  const { genres, tagGroups } = useMemo(() => {
-    const dests = new Map<string, { genre: string; myTags: string[] }>();
-    for (const r of rows) dests.set(r.toTrackId, { genre: r.toGenre, myTags: r.toMyTags });
-    return filterChoices([...dests.values()], filter);
-  }, [rows, filter]);
   if (performing) {
     return (
       <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
@@ -356,21 +349,19 @@ export function TransitionForm({
    */
   const patchRow = (id: string, patch: Partial<Pick<ListedTransition, "rating" | "difficulty" | "practice">>) => {
     setRows((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setKeptIds((cur) => new Set(cur).add(id));
     if (id !== editingId) return;
     if ("rating" in patch) setRating(patch.rating ?? null);
     if ("difficulty" in patch) setDifficulty(patch.difficulty ?? null);
     if ("practice" in patch) setPractice(patch.practice ?? false);
   };
 
-  const reasonsOf = (r: ListedTransition) =>
-    filterReasons(filter, r, { genre: r.toGenre, myTags: r.toMyTags });
   const searched = rows.filter((r) => {
     const q = listQ.trim().toLowerCase();
     return !q || `${r.from} ${r.to} ${r.fromCue} ${r.toCue} ${r.comment}`.toLowerCase().includes(q);
   });
-  const excludedCount = filtering ? searched.filter((r) => reasonsOf(r).length > 0).length : 0;
-  const shownRows = filtering
-    ? searched.filter((r) => (reasonsOf(r).length > 0) === showExcluded)
+  const shownRows = listFiltering
+    ? searched.filter((r) => keptIds.has(r.id) || matchesListFilter(listFilter, r))
     : searched;
 
   return (
@@ -642,7 +633,7 @@ export function TransitionForm({
       <section className="mt-8">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="label">
-            登録済みの繋ぎ · {filtering ? `${searched.length - excludedCount} / ${rows.length}` : rows.length}
+            登録済みの繋ぎ · {listFiltering ? `${shownRows.length} / ${rows.length}` : rows.length}
           </h2>
           <button
             type="button"
@@ -650,6 +641,7 @@ export function TransitionForm({
               // 閉じるときに一度だけ取り直す（グラフ・曲ページ・/play へ変更を届ける）
               if (bulk) router.refresh();
               setBulk((v) => !v);
+              setKeptIds(new Set());
             }}
             aria-pressed={bulk}
             className={`tap shrink-0 rounded-full border px-3 text-[12px] transition-colors ${
@@ -667,50 +659,28 @@ export function TransitionForm({
             className="h-10 w-full sm:ml-auto sm:w-[40%] rounded-card border border-border bg-surface-2 px-3 text-[14px] outline-none placeholder:text-fg-subtle focus:border-accent"
           />
         </div>
-        {/* 除外条件。/play と同じ条件で、プレイで使える繋ぎだけに絞る */}
+        {/* 絞り込み。押した値そのものに一致する繋ぎだけ（/play の除外条件とは別） */}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setFilterOpen((v) => !v)}
             aria-expanded={filterOpen}
             className={`tap rounded-full border px-3 text-[12px] ${
-              filtering
-                ? "border-warn/50 bg-warn/10 text-warn"
+              listFiltering
+                ? "border-accent/60 bg-accent/12 text-accent"
                 : "border-border text-fg-subtle hover:text-fg"
             }`}
           >
-            {filtering ? `除外: ${filterSummary(filter)}` : "除外条件"}
+            {listFiltering ? `絞り込み: ${listFilterSummary(listFilter)}` : "絞り込み"}
           </button>
-          {filtering && (
-            <button
-              type="button"
-              onClick={() => setShowExcluded((v) => !v)}
-              aria-pressed={showExcluded}
-              className={`tap rounded-full border px-3 text-[12px] transition-colors ${
-                showExcluded
-                  ? "border-accent/60 bg-accent/12 text-accent"
-                  : "border-border text-fg-muted hover:border-border-bright hover:text-fg"
-              }`}
-            >
-              {showExcluded ? "使える繋ぎに戻る" : `外れた繋ぎを見る · ${excludedCount}`}
-            </button>
-          )}
         </div>
         {filterOpen && (
-          <FilterPanel
-            filter={filter}
-            genres={genres}
-            tagGroups={tagGroups}
-            onChange={setFilter}
+          <ListFilterPanel
+            filter={listFilter}
+            rows={rows}
+            onChange={setListFilter}
             onClose={() => setFilterOpen(false)}
           />
-        )}
-        {filtering && (
-          <p className="mt-2 text-[12px] text-fg-subtle">
-            {showExcluded
-              ? "除外条件で外れている繋ぎです。札が外れた理由です。"
-              : "除外条件を通る繋ぎ（プレイで使える繋ぎ）だけを出しています。条件はプレイ画面と共通です。"}
-          </p>
         )}
         {bulk && (
           <p className="mt-2 text-[12px] text-fg-subtle">
@@ -732,15 +702,6 @@ export function TransitionForm({
                   {r.fromCue} → {r.toCue}
                 </span>
                 <RowDetails row={r} bulk={bulk} />
-                {showExcluded && filtering && (
-                  <span className="mt-1 flex flex-wrap gap-1">
-                    {reasonsOf(r).map((why) => (
-                      <span key={why} className="rounded border border-warn/40 px-1.5 py-0.5 text-[11px] text-warn">
-                        除外: {why}
-                      </span>
-                    ))}
-                  </span>
-                )}
               </span>
               {bulk && (
                 <div className="order-last flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-2">
