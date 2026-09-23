@@ -1,3 +1,4 @@
+import { canFollow, timingOf, type Timing } from "./duration";
 import type { Graph, Transition } from "./graph";
 
 /**
@@ -11,6 +12,10 @@ import type { Graph, Transition } from "./graph";
  * 本番中（/play）は「もう使った曲」を外して数え直す必要がある。そのため探索の本体は
  * `blockedSongs` を取る形にして**ここ1箇所だけ**に置き、サーバ用（Graph を渡す）と
  * 端末用（Graph を持てないので隣接だけ渡す）の2つの入口から呼ぶ。
+ *
+ * ★ 曲の中で時間が逆行する道は繋がりとして数えない: 繋ぎで入った位置より前（同じ位置も）の
+ *   キューから次の曲へは抜けられない（判定は `lib/duration.ts` の `canFollow`）。
+ *   時刻は `timing` で渡す（渡さなければ判定しない）。
  */
 
 export type Route = { trackIds: string[]; transitions: Transition[] };
@@ -43,6 +48,10 @@ function walkLongest<E extends Step>(
   /** もう使った曲（songId）。ここへは入らない */
   blockedSongs: ReadonlySet<string>,
   maxSteps: number,
+  /** 繋ぎの時刻（入る・抜ける位置）。無ければ時間の前後は見ない */
+  timing?: (e: E) => Timing,
+  /** 起点の曲へ入ってきた繋ぎ（/play の「今の曲」）。起点から抜ける繋ぎもこれより後に限る */
+  enteredBy: Timing | null = null,
 ): { trackIds: string[]; edges: E[]; truncated: boolean } {
   let best: { trackIds: string[]; edges: E[] } = { trackIds: [startId], edges: [] };
   let steps = 0;
@@ -52,7 +61,7 @@ function walkLongest<E extends Step>(
   const trackTrail: string[] = [startId];
   const trail: E[] = [];
 
-  const walk = (nodeId: string) => {
+  const walk = (nodeId: string, entered: Timing | null) => {
     if (++steps > maxSteps) { truncated = true; return; }
     if (trackTrail.length > best.trackIds.length) {
       best = { trackIds: [...trackTrail], edges: [...trail] };
@@ -60,24 +69,35 @@ function walkLongest<E extends Step>(
     for (const t of outgoing.get(nodeId) ?? []) {
       const song = songOf(t.toTrackId);
       if (visitedSongs.has(song) || blockedSongs.has(song)) continue; // 同じ曲（リミックス違い含む）は2回かけない
+      const time = timing?.(t) ?? null;
+      if (time && !canFollow(entered, time)) continue; // 入った位置より前から抜ける = 時間が逆行する
       visitedSongs.add(song);
       trackTrail.push(t.toTrackId);
       trail.push(t);
-      walk(t.toTrackId);
+      walk(t.toTrackId, time);
       trail.pop();
       trackTrail.pop();
       visitedSongs.delete(song);
     }
   };
-  walk(startId);
+  walk(startId, enteredBy);
   return { ...best, truncated };
 }
 
 const songOfGraph = (g: Graph): SongOf => (id) => g.trackById.get(id)?.songId ?? id;
 
+/** 繋ぎの時刻（入る・抜ける位置）を Graph から引く。`canFollow` の材料 */
+export function graphTiming(g: Graph): (t: Transition) => Timing {
+  const lookup = {
+    bpm: (id: string) => g.trackById.get(id)?.bpm ?? null,
+    cueMs: (id: string) => g.cueById.get(id)?.positionMs ?? null,
+  };
+  return (t) => timingOf(t, lookup);
+}
+
 export function longestRouteFrom(g: Graph, startId: string): Route {
   if (!g.trackById.has(startId)) return EMPTY;
-  const r = walkLongest(g.outgoing, songOfGraph(g), startId, NOTHING_BLOCKED, MAX_STEPS);
+  const r = walkLongest(g.outgoing, songOfGraph(g), startId, NOTHING_BLOCKED, MAX_STEPS, graphTiming(g));
   return { trackIds: r.trackIds, transitions: r.edges };
 }
 
@@ -93,9 +113,11 @@ export function maxOnwardFrom<E extends Step>(
   songOf: SongOf,
   startId: string,
   blockedSongs: ReadonlySet<string>,
+  timing?: (e: E) => Timing,
+  enteredBy: Timing | null = null,
 ): { count: number; truncated: boolean; trackIds: string[]; edges: E[] } {
   // 道筋も返す（何分のセットになるかを `lib/duration.ts` が数えるため）
-  const r = walkLongest(outgoing, songOf, startId, blockedSongs, CLIENT_MAX_STEPS);
+  const r = walkLongest(outgoing, songOf, startId, blockedSongs, CLIENT_MAX_STEPS, timing, enteredBy);
   return { count: r.trackIds.length, truncated: r.truncated, trackIds: r.trackIds, edges: r.edges };
 }
 

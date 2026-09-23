@@ -107,13 +107,15 @@ export function GraphExplorer({
     if (!filtering) return { routes: allRoutes, overallRoute: allOverall };
     const outgoing = new Map<string, GEdge[]>();
     for (const e of edges) (outgoing.get(e.source) ?? outgoing.set(e.source, []).get(e.source)!).push(e);
-    const next = new Map<string, { toTrackId: string; id: string }[]>();
-    for (const [id, list] of outgoing) next.set(id, list.map((e) => ({ toTrackId: e.target, id: e.id })));
+    const next = new Map<string, { toTrackId: string; id: string; timing: GEdge["timing"] }[]>();
+    for (const [id, list] of outgoing) {
+      next.set(id, list.map((e) => ({ toTrackId: e.target, id: e.id, timing: e.timing })));
+    }
     const songOf = (id: string) => nodeById.get(id)?.songId ?? id;
     const routes: RouteMap = {};
     let overall = { trackIds: [] as string[], edgeIds: [] as string[] };
     for (const n of nodes) {
-      const r = maxOnwardFrom(next, songOf, n.id, new Set());
+      const r = maxOnwardFrom(next, songOf, n.id, new Set(), (e) => e.timing);
       routes[n.id] = { trackIds: r.trackIds, edgeIds: r.edges.map((e) => e.id) };
       if (r.trackIds.length > overall.trackIds.length) overall = routes[n.id];
     }

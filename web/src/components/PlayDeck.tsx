@@ -11,7 +11,7 @@ import { FilterPanel } from "./FilterPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
 import { TrackTimeline } from "./TrackTimeline";
-import { minutesLabel, setLength, type SetLength } from "@/lib/duration";
+import { canFollow, minutesLabel, setLength, timingOf, type SetLength } from "@/lib/duration";
 import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
 import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import {
@@ -156,6 +156,8 @@ export function PlayDeck({
     bpm: (id: string) => trackById.get(id)?.bpm ?? null,
     cueMs: (id: string) => cueById.get(id)?.positionMs ?? null,
   }), [trackById, cueById]);
+  /** 繋ぎの入る・抜ける位置。時間が逆行する道（入った位置より前から抜ける）を辿らないために使う */
+  const timing = useMemo(() => (t: Transition) => timingOf(t, lengthLookup), [lengthLookup]);
   const cuesByTrack = useMemo(() => {
     const m = new Map<string, Cue[]>();
     for (const c of cues) {
@@ -267,11 +269,21 @@ export function PlayDeck({
     () => (current ? outgoing.get(current.id) ?? [] : []),
     [current, outgoing],
   );
+  /** 今の曲へ入ってきた繋ぎ。「曲を変える」で移った曲・最初の1曲は無い（= 頭から流す） */
+  const viaId = steps[steps.length - 1]?.viaTransitionId ?? null;
+  const via = viaId ? live.find((t) => t.id === viaId) ?? null : null;
+  const enteredAt = via ? timing(via) : null;
   const unplayed = candidates.filter((t) => !usedSongs.has(songOf(t.toTrackId)));
-  const open = unplayed.filter(passes);
-  /** かけた曲で隠した数と、条件で外した数は別の話なので分けて出す */
+  const passable = unplayed.filter(passes);
+  /**
+   * 今の曲に**入った位置より前（同じ位置も）のキューから抜ける繋ぎ**は繋がりとして出さない
+   * （時間が逆行する。判定は `canFollow`）。「この先◯曲」の探索も同じ判定で辿る
+   */
+  const open = passable.filter((t) => canFollow(enteredAt, timing(t)));
+  /** かけた曲で隠した数・条件で外した数・時間が逆行する数は別の話なので分けて出す */
   const hiddenPlayed = candidates.length - unplayed.length;
-  const hiddenFiltered = unplayed.length - open.length;
+  const hiddenFiltered = unplayed.length - passable.length;
+  const hiddenReversed = passable.length - open.length;
 
   /**
    * 一覧の並び = **「この先◯曲」が多い順。** 先が長い枝ほど、その後のセットの
@@ -290,7 +302,7 @@ export function PlayDeck({
       return {
         transition: t,
         to,
-        onward: maxOnwardFrom(usable, songOf, t.toTrackId, usedSongs),
+        onward: maxOnwardFrom(usable, songOf, t.toTrackId, usedSongs, timing, timing(t)),
         tempo: Math.abs(bpmDelta(current.bpm, to?.bpm ?? null) ?? 999),
       };
     });
@@ -307,7 +319,7 @@ export function PlayDeck({
       length: setLength(row.onward.trackIds, row.onward.edges, lengthLookup, row.transition),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById, lengthLookup]);
+  }, [current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById, lengthLookup, timing]);
 
   /** 今の曲から先、あと何曲つなげるか（今の曲を含む）。今の曲の songId は起点なので外す */
   const ahead = current
@@ -316,6 +328,8 @@ export function PlayDeck({
         songOf,
         current.id,
         new Set([...usedSongs].filter((s) => s !== songOf(current.id))),
+        timing,
+        enteredAt,
       )
     : null;
   const remaining = ahead?.count ?? 0;
@@ -323,14 +337,8 @@ export function PlayDeck({
    * 今の曲から、その道筋を最後まで流すと何分か。今の曲は**入った位置から**数える
    * （どこまで流したかは端末に分からないので、今の曲の分は丸ごと入る）
    */
-  const viaId = steps[steps.length - 1]?.viaTransitionId ?? null;
   const aheadLength = ahead
-    ? setLength(
-        ahead.trackIds,
-        ahead.edges,
-        lengthLookup,
-        viaId ? live.find((t) => t.id === viaId) ?? null : null,
-      )
+    ? setLength(ahead.trackIds, ahead.edges, lengthLookup, via)
     : null;
 
   // かけてきた順は右端（最新）を見せる。横スクロールの箱は左端から始まるので、
@@ -356,13 +364,13 @@ export function PlayDeck({
     const length: Record<string, SetLength> = {};
     const truncated = new Set<string>();
     for (const t of tracks) {
-      const r = maxOnwardFrom(usable, songOf, t.id, new Set());
+      const r = maxOnwardFrom(usable, songOf, t.id, new Set(), timing);
       max[t.id] = r.count;
       length[t.id] = setLength(r.trackIds, r.edges, lengthLookup);
       if (r.truncated) truncated.add(t.id);
     }
     return { max, length, truncated };
-  }, [pickerOpen, filtering, tracks, usable, songOf, lengthLookup]);
+  }, [pickerOpen, filtering, tracks, usable, songOf, lengthLookup, timing]);
 
   /** 除外条件のボタンと設定。プレイ中のヘッダと、曲を選ぶ一覧の両方に置く */
   const filterButton = (
@@ -527,6 +535,7 @@ export function PlayDeck({
           )}
           {hiddenPlayed > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hiddenPlayed}</span>}
           {hiddenFiltered > 0 && <span className="text-warn">条件で外した繋ぎ {hiddenFiltered}</span>}
+          {hiddenReversed > 0 && <span>入った位置より前から抜けるため隠した繋ぎ {hiddenReversed}</span>}
           <span className="ml-auto">{filterButton}</span>
         </p>
       </header>

@@ -1,3 +1,4 @@
+import type { Timing } from "@/lib/duration";
 /** サーバ側で組み立てて GraphExplorer に渡す、直列化可能なデータ。 */
 
 export type GNode = {
@@ -27,6 +28,8 @@ export type GEdge = {
   difficulty: string | null;
   rating: string | null;
   practice: boolean;
+  /** 入る・抜ける位置。条件で数え直すときも、時間が逆行する道を辿らない（`lib/duration.ts` の `canFollow`） */
+  timing: Timing;
 };
 
 export type PanelTransition = {

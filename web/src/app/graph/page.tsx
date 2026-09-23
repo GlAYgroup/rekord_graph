@@ -5,7 +5,7 @@ import { bpmDelta, cueLabel } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 import { computeLayout } from "@/lib/layout";
 import { listPatterns } from "@/lib/patterns";
-import { longestRouteFrom, longestRouteOverall } from "@/lib/route";
+import { graphTiming, longestRouteFrom, longestRouteOverall } from "@/lib/route";
 import { buildTree } from "@/lib/tree";
 
 export const metadata = { title: "グラフ | rekord_graph" };
@@ -65,9 +65,11 @@ export default async function GraphPage({
     songId: t.songId,
   }));
 
+  const timing = graphTiming(g);
   const edges: GEdge[] = g.transitions.map((t) => ({
     id: t.id, source: t.fromTrackId, target: t.toTrackId,
     difficulty: t.difficulty, rating: t.rating, practice: t.practice,
+    timing: timing(t),
   }));
 
   const panel: PanelData = {};

@@ -44,6 +44,24 @@ export function entryMs(t: Hop, toBpm: number | null, lookup: Pick<Lookup, "cueM
   return at;
 }
 
+/** 1本の繋ぎの時刻。入る = To 曲のどこから流すか（`entryMs`）、抜ける = From キューの位置 */
+export type Timing = { entryMs: number | null; exitMs: number | null };
+
+export function timingOf(t: Hop & { toTrackId: string }, lookup: Omit<Lookup, "durationSec">): Timing {
+  return { entryMs: entryMs(t, lookup.bpm(t.toTrackId), lookup), exitMs: lookup.cueMs(t.fromCueId) };
+}
+
+/**
+ * 繋ぎ `prev` で入った曲から、繋ぎ `next` で抜けられるか。**抜ける位置が入った位置より後のときだけ**
+ * （同じ位置も不可 = その曲を1秒も流さない）。位置が分からなければ通す（未入力で外さない）。
+ * 実データでは起きていない（2026-09-24 実測: 315通り中0件）が、起きたら**繋がりとして数えない** —
+ * /play の一覧・「この先◯曲」・最長ルートは `lib/route.ts` がこの判定で辿る
+ */
+export function canFollow(prev: Timing | null, next: Timing): boolean {
+  if (prev?.entryMs == null || next.exitMs == null) return true;
+  return next.exitMs > prev.entryMs;
+}
+
 /**
  * 曲の並び `trackIds` と、その間の繋ぎ `hops`（`hops[i]` が `trackIds[i]` → `trackIds[i+1]`）から
  * セットの長さを出す。`enteredBy` は最初の曲へ入ってきた繋ぎ（/play の「今の曲」から数えるとき）。
