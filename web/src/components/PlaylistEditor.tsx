@@ -6,7 +6,6 @@ import { useMemo, useState } from "react";
 import { minutesLabel, timingOf } from "@/lib/duration";
 import { barsLabel, cueLabel } from "@/lib/format";
 import { alignHops, checkPlaylist, type Playlist } from "@/lib/playlist";
-import { readPlan, writePlan } from "@/lib/playlog";
 import type { Cue, Track, Transition } from "@/lib/types";
 
 /**
@@ -17,8 +16,7 @@ import type { Cue, Track, Transition } from "@/lib/types";
  *   並べ替えても、選んでいた繋ぎがその2曲を結ぶなら残す（`alignHops`）
  * - /play の約束を破る並び（繋ぎなし・時間が逆行する・同じ曲が2回）は**止めずに警告**する
  *   （まだ繋ぎを入れていない曲も、イベントのために先に並べておけるように）
- * - 「この順で /play を始める」は最初の曲から /play を開き、間の繋ぎに「予定」の印を付けさせる
- *   （`PlayPlan.route` だけを書き換える。「セットを組む」で選んだ曲は残す）
+ * - 「この順でプレイ」は、このプレイリストの繋ぎだけを順にたどるプレイ画面（`PlaylistPlayer`）を開く
  * - rekordbox へは PC で `tools/rb_playlist.py` を回す（アプリからは master.db に触れない）
  */
 export function PlaylistEditor({
@@ -131,8 +129,10 @@ export function PlaylistEditor({
       if (!res.ok) throw new Error(json.error ?? `保存できませんでした（${res.status}）`);
       setSaved(true);
       router.refresh();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -144,9 +144,14 @@ export function PlaylistEditor({
     setError((await res.json().catch(() => null))?.error ?? `削除できませんでした（${res.status}）`);
     setBusy(false);
   };
-  /** /play へ渡すのは道筋（繋ぎID）だけ。「セットを組む」で選んだ曲は残す */
-  const startPlay = () =>
-    writePlan({ ...readPlan(), route: hops.filter((h): h is string => h !== null) });
+  /**
+   * このプレイリストだけをたどるプレイ画面（`/playlists/<id>/play`）へ。読むのは保存済みの並びなので、
+   * 直しかけなら先に保存する（保存できなければ移らない）
+   */
+  const startPlay = async () => {
+    if (dirty && !(await save())) return;
+    router.push(`/playlists/${playlist.id}/play`);
+  };
 
   const btn = "tap grid size-9 shrink-0 place-items-center rounded-full border border-border text-[13px] text-fg-muted hover:text-fg disabled:opacity-30";
 
@@ -265,13 +270,13 @@ export function PlaylistEditor({
           {busy ? "保存中…" : dirty ? "保存する" : "保存済み"}
         </button>
         {items.length > 0 && (
-          <Link
-            href={`/play?from=${encodeURIComponent(trackIds[0])}`}
+          <button
             onClick={startPlay}
-            className="tap flex flex-1 items-center justify-center rounded-card border border-hot/50 bg-hot/12 px-4 text-[14px] font-semibold text-hot"
+            disabled={busy}
+            className="tap flex flex-1 items-center justify-center rounded-card border border-hot/50 bg-hot/12 px-4 text-[14px] font-semibold text-hot disabled:opacity-40"
           >
-            この順で /play を始める →
-          </Link>
+            {dirty ? "保存してこの順でプレイ →" : "この順でプレイ →"}
+          </button>
         )}
       </div>
       {saved && !dirty && <p className="mt-2 text-[13px] text-fg-muted">保存しました。</p>}

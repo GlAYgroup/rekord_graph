@@ -4,18 +4,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CommentEditor } from "./CommentEditor";
-import { CueLine } from "./CuePad";
 import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
 import { FilterPanel } from "./FilterPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
+import { HopDetails } from "./HopDetails";
 import { RouteSteps } from "./RouteSteps";
 import { SaveAsPlaylist } from "./SaveAsPlaylist";
-import { TrackTimeline } from "./TrackTimeline";
 import { canFollow, minutesLabel, setLength, timingOf, type SetLength } from "@/lib/duration";
-import { barsLabel, bpmDelta, cueLabel } from "@/lib/format";
-import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
+import { bpmDelta } from "@/lib/format";
 import {
   archive, NO_FILTER, readCurrent, readFilter, readPlan, writeCurrent, writeFilter, writePlan,
   type PlayFilter, type PlayStep,
@@ -579,8 +577,6 @@ export function PlayDeck({
       ) : (
         <ul className="mt-3 space-y-2.5">
           {rows.map(({ transition: t, to, onward: n, length }) => {
-            const fromCue = cueById.get(t.fromCueId);
-            const toCue = cueById.get(t.toCueId);
             return (
               // 枠は li が持つ。「要練習」は送るボタンの**外**に出す
               // （ボタンの中にボタンは置けないうえ、入れるとタップが曲送りに食われる）
@@ -637,60 +633,15 @@ export function PlayDeck({
                     )}
                   </div>
 
-                  {/* ── どのキューからどのキューへ・どう繋ぐか（全文） ── */}
-                  <div className="min-w-0 space-y-2 sm:flex-1">
-                    <CueLine cue={fromCue} size="sm" />
-                    <TrackTimeline
-                      durationSec={current.durationSec}
-                      cues={cuesByTrack.get(current.id) ?? []}
-                      highlightCueId={t.fromCueId}
-                      mode="exit"
-                    />
-                    <div className="flex items-center gap-2 py-0.5 pl-[18px] text-fg-subtle">
-                      <span className="text-[13px]">↓</span>
-                      <span className="h-px flex-1 bg-border" />
-                    </div>
-                    <CueLine cue={toCue} size="sm" />
-                    <TrackTimeline
-                      durationSec={to?.durationSec ?? null}
-                      cues={cuesByTrack.get(t.toTrackId) ?? []}
-                      highlightCueId={t.toCueId}
-                      mode="enter"
-                    />
-
-                    {(t.technique || t.difficulty || (performing && t.rating) || barsLabel(t, cueLabel(toCue)) || t.comment) && (
-                      <div className="space-y-1 pt-0.5">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {/* 除外条件の根拠が画面に無いと、なぜ残ったか読めない */}
-                          {t.difficulty && (
-                            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
-                              {DIFFICULTY_LABEL[t.difficulty as Difficulty] ?? t.difficulty}
-                            </span>
-                          )}
-                          {/* 星の印は本番中だけ。下見中は下の帯の押せる星が同じことを言うので重ねない */}
-                          {performing && t.rating && (
-                            <span className="text-[11.5px] text-warn">{t.rating}</span>
-                          )}
-                          {t.technique && (
-                            <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
-                              {t.technique}
-                            </span>
-                          )}
-                          {barsLabel(t, cueLabel(toCue)) && (
-                            <span className="text-[11.5px] tabular-nums text-fg-subtle">
-                              {barsLabel(t, cueLabel(toCue))}
-                            </span>
-                          )}
-                        </div>
-                        {/* メモは**省略しない**。改行もそのまま出す（プレイ中に読む本文） */}
-                        {t.comment && (
-                          <p className="whitespace-pre-wrap break-words text-[14.5px] leading-relaxed text-fg">
-                            {t.comment}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  {/* ── どのキューからどのキューへ・どう繋ぐか（全文）。プレイリストのプレイ画面と共通 ── */}
+                  <HopDetails
+                    t={t}
+                    from={current}
+                    to={to}
+                    cueById={cueById}
+                    cuesByTrack={cuesByTrack}
+                    showRating={performing}
+                  />
                 </button>
                 {/*
                   下見中（本番ボタンを押していないとき）だけ、その場で星・要練習・コメントを直せる。

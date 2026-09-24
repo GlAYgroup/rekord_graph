@@ -174,3 +174,24 @@ export function readPlan(): PlayPlan {
 export function writePlan(plan: PlayPlan) {
   write(PLAN, plan);
 }
+
+/**
+ * プレイリストのプレイ画面（`/playlists/<id>/play`）で**今何曲目か**。プレイリストごとに端末が持つ
+ * （その場の話なので Notion には書かない。再読み込み・画面を離れて戻っても続きから）。
+ * 読み書きは `lib/usePlaylistPos.ts` から。
+ */
+export const PLAYLIST_POS = "rg.playlist.pos.v1";
+
+export function readPlaylistPositions(): Record<string, number> {
+  const raw = parse(PLAYLIST_POS);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      (e): e is [string, number] => Number.isInteger(e[1]) && (e[1] as number) >= 0,
+    ),
+  );
+}
+
+export function writePlaylistPosition(id: string, pos: number) {
+  write(PLAYLIST_POS, { ...readPlaylistPositions(), [id]: pos });
+}
