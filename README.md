@@ -127,6 +127,7 @@ rekordbox の `rekord_graph` フォルダの中だけを触り、同じ名前が
 ```bash
 ./.venv/bin/python tools/rb_playlist.py          # 何が変わるかを見るだけ
 ./.venv/bin/python tools/rb_playlist.py --apply  # rekordbox を終了してから
+./.venv/bin/python tools/rb_playlist.py --import "ボカトト" --apply  # 逆向き: rekordbox のプレイリストをアプリへ
 ```
 
 🎶Playlists の DB は後から足したもの。無ければ `./.venv/bin/python tools/setup_notion.py --add playlists --write` で

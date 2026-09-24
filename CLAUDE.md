@@ -127,6 +127,8 @@ MCP から叩くときの data_source_id は memory に置いてある。
 **🎶 Playlists はイベントごとのプレイリスト**（アプリの `/playlists` が書き、`tools/rb_playlist.py` が
 rekordbox の `rekord_graph` フォルダへ書き出す）。**後から足した任意の DB** なので、無くても sync や他の画面は動く
 （`tools/config.py` の `OPTIONAL_DB_KEYS`、web は `hasDb("playlists")` を見て画面だけ「未設定」）。
+逆向き（rekordbox のプレイリスト → 🎶Playlists）は `rb_playlist.py --import <名前>`（間の繋ぎは `pickTransition` と同じ
+決め方で選ぶ。Notion に同じ名前があれば作らない）。
 作るのは `tools/setup_notion.py --add playlists --write`（今ある DB と同じ親ページ）。**アプリは初回保存で DB を作らない**
 （2台から同時に保存すると2つできる）。
 

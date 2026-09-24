@@ -15,6 +15,14 @@
     ./.venv/bin/python tools/rb_playlist.py                 # 何が変わるかを見るだけ
     ./.venv/bin/python tools/rb_playlist.py --apply         # 全部書き出す
     ./.venv/bin/python tools/rb_playlist.py --name "◯◯" --apply   # 1本だけ
+
+逆向き（rekordbox → アプリ）は `--import`。rekordbox のプレイリストを並び順のまま 🎶Playlists に1本作る
+（rekordbox はコピーを読むだけなので、起動中でもよい）。間の繋ぎはアプリと同じ決め方で1本ずつ選ぶ
+（`web/src/lib/playlist.ts` の `pickTransition`: 星が多い → 古い → ID）。記録に無い間は「-」。
+Notion に同じ名前があれば作らない。
+
+    ./.venv/bin/python tools/rb_playlist.py --import "ボカトト"            # 何が入るかを見るだけ
+    ./.venv/bin/python tools/rb_playlist.py --import "ボカトト" --apply    # 🎶Playlists に作る
 """
 from __future__ import annotations
 
@@ -47,11 +55,70 @@ def songs_of(db, playlist) -> list:
     return sorted(db.get_playlist_songs(PlaylistID=playlist.ID), key=lambda s: s.TrackNo or 0)
 
 
+def pick_hops(ids: list[str]) -> list[str | None]:
+    """曲の並び（ContentID）の間の繋ぎ（🔀Transitions のページID）。選び方は pickTransition と同じ"""
+    page2rb = {pg["id"]: na.plain(pg["properties"].get("rekordboxID")) for pg in na.query_all(na.CONFIG["tracks"])}
+    by_pair: dict[tuple[str, str], list[dict]] = {}
+    for pg in na.query_all(na.CONFIG["transitions"]):
+        p = pg["properties"]
+        f = [r["id"] for r in (p.get("From曲") or {}).get("relation") or []]
+        t = [r["id"] for r in (p.get("To曲") or {}).get("relation") or []]
+        if f and t:
+            stars = (na.select_name(p.get("評価")) or "").count("★")
+            by_pair.setdefault((page2rb.get(f[0]), page2rb.get(t[0])), []).append(
+                {"id": pg["id"], "stars": stars, "created": pg.get("created_time", "")})
+    hops = []
+    for a, b in zip(ids, ids[1:]):
+        cands = sorted(by_pair.get((a, b), []), key=lambda x: (-x["stars"], x["created"], x["id"]))
+        hops.append(cands[0]["id"] if cands else None)
+    return hops
+
+
+def import_playlist(name: str, apply: bool) -> int:
+    from pyrekordbox import Rekordbox6Database
+    db = Rekordbox6Database(path=str(rb_export.copy_db(pathlib.Path(tempfile.mkdtemp()))), unlock=True)
+    found = db.get_playlist(Name=name, Attribute=0).all()
+    if len(found) != 1:
+        print(f"rekordbox に「{name}」というプレイリストが{'ありません' if not found else f'{len(found)}つあります'}", file=sys.stderr)
+        return 1
+    songs = songs_of(db, found[0])
+    ids = [str(s.ContentID) for s in songs]
+    if "playlists" not in na.CONFIG:
+        raise SystemExit("🎶Playlists の database ID が設定にありません（tools/setup_notion.py --add playlists --write）")
+    if any(pl["name"] == name for pl in load_playlists()):
+        print(f"🎶Playlists に「{name}」が既にあります。作りません", file=sys.stderr)
+        return 1
+    hops = pick_hops(ids)
+    for i, s in enumerate(songs):
+        gap = "" if i == len(songs) - 1 else ("   ↓" if hops[i] else "   ↓ 繋ぎなし")
+        print(f"{i + 1:2} {db.get_content(ID=s.ContentID).Title}{gap}")
+    print(f"\n{len(ids)}曲 · 繋ぎなし {hops.count(None)}か所")
+    if not apply:
+        print("（見ただけ）--apply で 🎶Playlists に作ります")
+        return 0
+    text = lambda v: {"rich_text": [{"type": "text", "text": {"content": c}} for c in [v[i:i + 1900] for i in range(0, len(v), 1900)]]}
+    page = na.request("POST", "/pages", {
+        "parent": {"database_id": na.CONFIG["playlists"]},
+        "properties": {
+            "名前": {"title": [{"type": "text", "text": {"content": name}}]},
+            "曲": text(" ".join(ids)),
+            "繋ぎ": text(" ".join(h or "-" for h in hops)),
+            "曲数": {"number": len(ids)},
+        },
+    })
+    print(f"✓ 🎶Playlists に作りました: {page['id']}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="実機の master.db に書く（rekordbox を終了してから）")
     ap.add_argument("--name", help="この名前のプレイリストだけ")
+    ap.add_argument("--import", dest="import_name", metavar="NAME",
+                    help="逆向き: rekordbox のこのプレイリストを 🎶Playlists に作る（--apply で書く）")
     args = ap.parse_args()
+    if args.import_name:
+        return import_playlist(args.import_name, args.apply)
 
     playlists = load_playlists()
     if args.name:
