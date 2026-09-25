@@ -109,10 +109,59 @@ export function graphTiming(g: Graph): (t: Transition) => Timing {
   return (t) => timingOf(t, lookup);
 }
 
+/**
+ * 探索結果の使い回し。`/`・`/play`・`/graph` は開くたびに**全曲ぶん**を探し直していて、
+ * それだけで1秒以上かかっていた（実測 2026-09-25: 開発サーバで約1.5秒）。
+ * 答えを決めるのは「曲の並びと songId」「繋ぎの並び・行き先・時刻」だけなので、
+ * それが同じなら前回の答えを返す。Graph は要求ごとに作り直されるので、鍵は中身から作る。
+ * 持つのは ID だけで、返すときに今の Graph の繋ぎへ引き直す（古い Graph の行を外へ出さない）。
+ */
+type RouteIds = { trackIds: string[]; edgeIds: string[] };
+const routeCache = new Map<string, Map<string, RouteIds>>();
+const ROUTE_CACHE_MAX = 4;
+const signatures = new WeakMap<Graph, string>();
+
+function routeSignature(g: Graph): string {
+  let sig = signatures.get(g);
+  if (sig !== undefined) return sig;
+  const timing = graphTiming(g);
+  const ts = g.tracks.map((t) => `${t.id}:${t.songId}`);
+  const es: string[] = [];
+  for (const t of g.tracks) {
+    for (const e of g.outgoing.get(t.id) ?? []) {
+      const { entryMs, exitMs } = timing(e);
+      es.push(`${e.id}:${e.fromTrackId}>${e.toTrackId}@${entryMs}/${exitMs}`);
+    }
+  }
+  sig = `${ts.join("\n")}\n--\n${es.join("\n")}`;
+  signatures.set(g, sig);
+  return sig;
+}
+
 export function longestRouteFrom(g: Graph, startId: string): Route {
   if (!g.trackById.has(startId)) return EMPTY;
-  const r = walkLongest(g.outgoing, songOfGraph(g), startId, NOTHING_BLOCKED, MAX_STEPS, graphTiming(g));
-  return { trackIds: r.trackIds, transitions: r.edges };
+  const sig = routeSignature(g);
+  let memo = routeCache.get(sig);
+  if (!memo) {
+    if (routeCache.size >= ROUTE_CACHE_MAX) routeCache.delete(routeCache.keys().next().value!);
+    memo = new Map();
+    routeCache.set(sig, memo);
+  }
+  let ids = memo.get(startId);
+  if (!ids) {
+    const r = walkLongest(g.outgoing, songOfGraph(g), startId, NOTHING_BLOCKED, MAX_STEPS, graphTiming(g));
+    ids = { trackIds: r.trackIds, edgeIds: r.edges.map((e) => e.id) };
+    memo.set(startId, ids);
+  }
+  const byId = transitionIndex(g);
+  return { trackIds: ids.trackIds, transitions: ids.edgeIds.map((id) => byId.get(id)!) };
+}
+
+const indexes = new WeakMap<Graph, Map<string, Transition>>();
+function transitionIndex(g: Graph): Map<string, Transition> {
+  let m = indexes.get(g);
+  if (!m) { m = new Map(g.transitions.map((t) => [t.id, t])); indexes.set(g, m); }
+  return m;
 }
 
 /**

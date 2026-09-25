@@ -17,6 +17,9 @@ export default async function GraphPage({
 }) {
   const sp = await searchParams;
   const from = typeof sp.from === "string" ? sp.from : undefined;
+  // 配置パターンは Notion を毎回取り直す（fresh）ので、計算と並べて先に投げておく。
+  // Notion が落ちていても地図は出したいので、失敗しても素の配置で続行する
+  const patternsP = sp.mode === "tree" ? null : listPatterns().catch(() => []);
   const g = await getGraph();
 
   // ツリーモード: 起点から右へ分岐を展開する（MixTree 風）
@@ -123,9 +126,8 @@ export default async function GraphPage({
     edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
   );
 
-  // 保存済みパターン。先頭（最後に保存したもの）を既定の形として開く。
-  // Notion が落ちていても地図は出したいので、失敗しても素の配置で続行する
-  const patterns = await listPatterns().catch(() => []);
+  // 保存済みパターン。先頭（最後に保存したもの）を既定の形として開く
+  const patterns = (await patternsP) ?? [];
 
   return (
     <GraphExplorer
