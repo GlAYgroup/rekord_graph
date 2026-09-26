@@ -186,7 +186,7 @@ docs/    設計メモ
 ## 注意
 
 - 🎵 Tracks と 📍 Cues は機械が管理する鏡。Notion 側で手編集しても次の同期で上書きされる。直すのは rekordbox 側
-- master.db への書き込みは `tools/rb_retitle.py`（曲名の一括修正）だけで、実行前にバックアップを取る。Pioneer 非公式なので自己責任
+- master.db へ書き込むのは `tools/rb_tags.py`（曲名・アーティスト・ジャンル）・`tools/rb_mytag.py`（My Tag）・`tools/rb_playlist.py`（プレイリスト）。rekordbox を終了してから回す。`rb_tags.py` は書く前に自動でバックアップを取る。Pioneer 非公式なので自己責任
 - `tools/migrate_transitions.py` は作者の手書きメモを取り込んだ一回きりのツール。参考実装として置いてある
 
 ## ライセンス

@@ -123,7 +123,7 @@ def run_plan(db, cat: tables.DjmdMyTag, plan: pathlib.Path) -> int:
 
 
 def run(db_path: pathlib.Path, apply: bool, plan: pathlib.Path | None = None) -> int:
-    # `path=` で開く（`db_dir=` は効かず実機が開かれる。fix_rb_tags.py の注意と同じ）
+    # `path=` で開く（`db_dir=` は効かず実機が開かれる。rb_tags.py の注意と同じ）
     db = Rekordbox6Database(path=str(db_path), unlock=True)
     cat = category(db)
     if plan:

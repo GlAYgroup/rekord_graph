@@ -116,6 +116,8 @@ MCP 経由のクエリにはワークスペースの利用上限があるため�
   sync は My Tag を 🎵Tracks の `マイタグ` 列へ「カテゴリ/タグ」を1行ずつで写す（`原曲/アニメ`）
   `原曲` のタグは VOCALOID・アニメ・J-POP・K-POP・クラシック・東方・インターネット音楽。
   人が確かめた分類表（`data/mytag_plan.json`）を `rb_mytag.py --plan` で**足す**（外しはしない）
+- **曲名・アーティスト・ジャンルを直すときは `/fix-tags` スキル**（`tools/rb_tags.py`。修正表 `data/tag_fixes.json` を
+  ContentID で書き、dry-run → rekordbox を終了 → `--yes`（自動でバックアップ）→ sync で 🎵Tracks へ）
 - 同じ曲名に rekordbox 側の候補が複数ある場合がある（`メルト` `転生林檎` `Rabbit Hole` `フォニイ`）。
   **キュー名が曖昧性を解消する**ので、曲名だけで決め打ちしない
 
