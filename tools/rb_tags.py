@@ -5,6 +5,7 @@
 **実機が唯一の正**なので、Notion（鏡）ではなくここを直す。直したあと
 `tools/sync.py` を回せば「曲更新」として 🎵Tracks に流れる。
 
+    ./.venv/bin/python tools/rb_tags.py --audit        # 形式から外れた曲・原曲の分類が無い曲を並べる（読むだけ）
     ./.venv/bin/python tools/rb_tags.py --find ベノム  # ContentID を調べる（読むだけ）
     ./.venv/bin/python tools/rb_tags.py --dry-run      # 出すだけ。何も書かない
     ./.venv/bin/python tools/rb_tags.py                # 1件ずつ y/n/a/q で確認
@@ -40,6 +41,7 @@ import json
 import shutil
 import subprocess
 import sys
+import re
 import tempfile
 import unicodedata
 from datetime import datetime
@@ -169,17 +171,72 @@ def find(db, words: list[str]) -> None:
     print(f"\n{hits} 件（ContentID / 曲名 / アーティスト / ジャンル）")
 
 
+# 形式（`原曲タイトル（リミキサー remix）`）から外れている印。**見て分かることだけ**を拾い、
+# 原曲名やアーティストの推測はしない（それは人・調べものの仕事）
+REMIX_WORD = re.compile(r"(remix|bootleg|edit|flip|mix\b|vip|mashup|rework)", re.I)
+SHAPE_CHECKS = [
+    (re.compile(r"[()\[\]]"), "半角の括弧"),
+    (re.compile(r"[【】]"), "【】の装飾"),
+    (re.compile(r"\s[-–—]\s"), "「アーティスト - 曲名」の形"),
+    (re.compile(r"\b(feat|ft)\.", re.I), "feat. が曲名に入っている"),
+    (re.compile(r"_"), "アンダースコア（ファイル名のまま）"),
+    (re.compile(r"free\s*(dl|download)|extended mix|\+vsqx", re.I), "配布元の飾り"),
+]
+
+
+def title_problems(title: str) -> list[str]:
+    t = nfc(title)
+    out = [why for rx, why in SHAPE_CHECKS if rx.search(t)]
+    outside = re.sub(r"（[^）]*）", "", t)  # 全角括弧の外にリミックス語がある = 括弧に入っていない
+    if REMIX_WORD.search(outside):
+        out.append("リミックス名が全角括弧に入っていない")
+    return out
+
+
+def audit(entries: list[dict]) -> None:
+    """同期対象の曲のうち、形式・アーティスト・原曲の分類が揃っていないものを並べる（読むだけ）。
+    新しく取り込んだ曲は旧ファイル名のまま入ってくるので、取り込みのたびにこれで拾う"""
+    import config
+    import rb_export
+
+    queued = {str(e["id"]): e.get("status", "ok") for e in entries}
+    tracks = rb_export.export(config.rekordbox_options()["folderFilter"])["tracks"]
+    rows = []
+    for t in tracks:
+        why = title_problems(t["title"])
+        if not (t["artist"] or "").strip():
+            why.append("アーティストが空")
+        if not any(tag.startswith("原曲/") for tag in t["myTags"]):
+            why.append("原曲の分類（My Tag）なし")
+        if why:
+            rows.append((t, why))
+    for t, why in rows:
+        mark = {"ok": "［修正表にあり］", "check": "［修正表: 確認待ち］"}.get(queued.get(t["id"]), "")
+        print(f"\n{t['id']}  {t['title']}  {mark}")
+        print(f"    アーティスト: {t['artist'] or '（空）'} / ジャンル: {t['genre'] or '（空）'} / "
+              f"My Tag: {', '.join(t['myTags']) or '（なし）'}")
+        for w in why:
+            print(f"    - {w}")
+    print(f"\n{len(rows)} 曲（同期対象 {len(tracks)} 曲のうち）")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="差分を出すだけ。何も書き込まない")
     ap.add_argument("--yes", action="store_true", help="全件承認する（内容を確認済みのときだけ）")
     ap.add_argument("--find", nargs="+", metavar="語", help="曲名・アーティスト・ジャンル・パスで曲を探す（読むだけ）")
+    ap.add_argument("--audit", action="store_true", help="形式・アーティスト・原曲の分類が揃っていない曲を並べる（読むだけ）")
     ap.add_argument("--map", type=Path, default=MAP_PATH, help=f"修正表（既定: {MAP_PATH}）")
     args = ap.parse_args()
 
     if not (RB_DIR / "master.db").exists():
         print(f"master.db が見つかりません: {RB_DIR}", file=sys.stderr)
         return 1
+
+    if args.audit:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        audit(load_map(args.map) if args.map.exists() else [])
+        return 0
 
     readonly = args.dry_run or bool(args.find)
     if not readonly and rekordbox_running():
