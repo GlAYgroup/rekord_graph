@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
-  LABEL_FONT, LABEL_LINE_H, type Layout, type Sim, labelWidth, seedNode, settle, wrapLabel,
+  LABEL_FONT, LABEL_LINE_H, type Layout, type Sim, labelWidth, placeBelow, seedNode, settle, wrapLabel,
 } from "@/lib/layout";
 import { usePerformance } from "@/components/PerformanceMode";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -62,13 +62,11 @@ function nextPatternName(list: GPattern[]): string {
 }
 
 export function GraphExplorer({
-  nodes, edges: allEdges, layout, patterns: initialPatterns, routes: allRoutes, overallRoute: allOverall,
+  nodes, edges: allEdges, patterns: initialPatterns, routes: allRoutes, overallRoute: allOverall,
   panel: allPanel, initialFocusId, stats: allStats,
 }: {
   nodes: GNode[];
   edges: GEdge[];
-  /** サーバが決めた配置。全デバイスで同じ形になるよう、ここが唯一の正 */
-  layout: Layout;
   /** 保存済みの配置パターン。先頭 = 最後に保存したもの */
   patterns: GPattern[];
   routes: RouteMap;
@@ -266,28 +264,70 @@ export function GraphExplorer({
   const rafRef = useRef<number>(0);
 
   /**
+   * 自動配置（サーバ計算）。**開くたびには取らない** — 「自動」を開いたときと「配置を更新」を
+   * 押したときだけ /api/layouts/auto から取る。繋ぎが増えても、押すまでは前に取った形のまま
+   * （増えた曲は下に並ぶ）。以前は開くたびにサーバが計算し（547曲で約1.3秒）、さらに保存した
+   * パターンに無い曲を端末が全曲ぶんの力学で馴染ませていた（Mac で約1.1秒、スマホでは数秒）
+   */
+  const autoRef = useRef<Layout | null>(null);
+  const [layoutBusy, setLayoutBusy] = useState(false);
+  const [layoutNote, setLayoutNote] = useState<string | null>(null);
+  const fetchAuto = useCallback(async (): Promise<Layout | null> => {
+    setLayoutBusy(true);
+    try {
+      // `cache: "no-store"` を付けない。付けると開発サーバは Notion のキャッシュまで飛ばして全部読み直す
+      // （実測: 付けると約5〜9秒、付けないと 0.05秒）。古い形を掴まないのは返す側の no-store で担保する
+      const res = await fetch("/api/layouts/auto");
+      if (!res.ok) throw new Error(String(res.status));
+      const data: { layout: Layout } = await res.json();
+      autoRef.current = data.layout;
+      return data.layout;
+    } catch {
+      setLayoutNote("自動配置を取れませんでした");
+      return null;
+    } finally {
+      setLayoutBusy(false);
+    }
+  }, []);
+
+  /**
    * 座標表を配置に反映する。`positions` が null なら自動配置（サーバ計算）に戻す。
-   * 保存した形に無い曲（あとから増えた曲）だけ種から生やして馴染ませる。
+   * 座標表に無い曲（あとから増えた曲）は**力学を回さず**、塊の下に格子で並べる（`placeBelow`。
+   * 繋ぎのある曲を先に）。馴染ませるのは「配置を更新」を押したときだけ（`refreshLayout`）。
    * 保存済みの曲は pinned なので動かない = 「保存した形は崩れない」。
    */
+  const applyPositionsRef = useRef<(positions: GPattern["positions"] | null) => void>(() => {});
   const applyPositions = useCallback((positions: GPattern["positions"] | null) => {
     const sim = simRef.current;
     sim.clear();
-    let placed = true;
+    const known: Layout = {};
+    const missing: GNode[] = [];
     for (const n of nodes) {
-      const p = positions ? positions[n.rbId || n.id] : layout[n.id];
+      const p = positions ? positions[n.rbId || n.id] : autoRef.current?.[n.id];
       if (p) {
+        known[n.id] = p;
         sim.set(n.id, { id: n.id, x: p.x, y: p.y, vx: 0, vy: 0, pinned: true });
       } else {
-        sim.set(n.id, seedNode(n.id));
-        placed = false;
+        missing.push(n);
       }
     }
-    // ラベルの箱を作るので label を渡す（サーバの計算と同じ規則で重なりを解く）
-    if (!placed) settle(sim, nodes.map((n) => ({ id: n.id, label: n.name })), allEdges, 200);
+    const linked = (n: GNode) => (n.out + n.in > 0 ? 0 : 1);
+    missing.sort((a, b) => linked(a) - linked(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const below = placeBelow(known, missing.map((n) => ({ id: n.id, label: n.name })));
+    for (const n of missing) {
+      const p = below[n.id];
+      sim.set(n.id, { id: n.id, x: p.x, y: p.y, vx: 0, vy: 0, pinned: true });
+    }
     fitRef.current();
     tick();
-  }, [nodes, allEdges, layout]);
+    // 自動配置をまだ取っていなければ取りに行き、届いた時にまだ「自動」なら敷き直す
+    if (!positions && !autoRef.current) {
+      void fetchAuto().then((l) => {
+        if (l && activeIdRef.current === null) applyPositionsRef.current(null);
+      });
+    }
+  }, [nodes, fetchAuto]);
+  useEffect(() => { applyPositionsRef.current = applyPositions; }, [applyPositions]);
 
   // 初回と、曲が増減したとき。開いているパターン（無ければ自動配置）を敷き直す
   useEffect(() => {
@@ -423,6 +463,50 @@ export function GraphExplorer({
     setActiveId(null); activeIdRef.current = null;
     applyPositions(null);
   }, [applyPositions, flushAutoSave]);
+
+  /**
+   * 「配置を更新」。**押したときだけ**配置を計算し直す（開くたび・繋ぎが増えるたびには計算しない）。
+   * - 自動配置: サーバで今の曲・繋ぎから計算し直した形を取り直す
+   * - パターン: 保存した曲は動かさず（pinned）、**まだ置き場所の無い、繋ぎのある曲だけ**を力学で馴染ませる。
+   *   繋ぎの無い曲は下に並べ直す。押した結果はそのパターンに保存する（ドラッグと同じ自動保存）
+   */
+  const refreshLayout = useCallback(async () => {
+    setLayoutNote(null);
+    if (activeIdRef.current === null) {
+      const l = await fetchAuto();
+      if (l && activeIdRef.current === null) applyPositions(null);
+      return;
+    }
+    const positions = patternsRef.current.find((p) => p.id === activeIdRef.current)?.positions ?? {};
+    const linked = nodes.filter((n) => n.out + n.in > 0);
+    const fresh = linked.filter((n) => !positions[n.rbId || n.id]);
+    if (!fresh.length) { setLayoutNote("新しく繋がった曲はありません"); return; }
+    const sim = simRef.current;
+    const freshIds = new Set(fresh.map((n) => n.id));
+    for (const n of fresh) sim.set(n.id, seedNode(n.id));
+    // 馴染ませるのは繋ぎのある曲だけ（繋ぎの無い曲まで入れると全曲ぶんの力学になり重い）
+    settle(sim, linked.map((n) => ({ id: n.id, label: n.name })), allEdges, 200);
+    const known: Layout = {};
+    for (const n of linked) {
+      const v = sim.get(n.id);
+      if (v) { v.pinned = true; known[n.id] = { x: v.x, y: v.y }; }
+    }
+    const rest = nodes
+      .filter((n) => n.out + n.in === 0 && !positions[n.rbId || n.id])
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const below = placeBelow(
+      Object.fromEntries(nodes.filter((n) => positions[n.rbId || n.id] || freshIds.has(n.id))
+        .map((n) => [n.id, known[n.id] ?? positions[n.rbId || n.id]])),
+      rest.map((n) => ({ id: n.id, label: n.name })),
+    );
+    for (const n of rest) {
+      const v = sim.get(n.id);
+      if (v) { v.x = below[n.id].x; v.y = below[n.id].y; v.pinned = true; }
+    }
+    tick();
+    setLayoutNote(`${fresh.length}曲を馴染ませました`);
+    scheduleAutoSave();
+  }, [nodes, allEdges, applyPositions, fetchAuto, scheduleAutoSave]);
 
   // 本番に入った瞬間、待機中の保存も捨てる（直前に触ってしまった分を書かせない）
   useEffect(() => {
@@ -1289,13 +1373,26 @@ export function GraphExplorer({
           {patterns.map((p) => (
             <button
               key={p.id}
-              onClick={() => loadPattern(p.id)}
+              onClick={() => { setLayoutNote(null); loadPattern(p.id); }}
               className={chip(activeId === p.id)}
               title={`${p.name}（${Object.keys(p.positions).length}曲）を読み込む`}
             >
               {p.name}
             </button>
           ))}
+          {/* 計算し直すのは押したときだけ。パターンを開いているときは結果をそのパターンに保存するので data-edit */}
+          <button
+            data-edit
+            onClick={() => void refreshLayout()}
+            disabled={busy || layoutBusy}
+            className="tap rounded-full border border-border bg-surface/90 px-4 text-[12px] text-fg-subtle backdrop-blur transition-colors hover:text-fg-muted disabled:opacity-40"
+            title={activeId === null
+              ? "今の曲と繋ぎで自動配置を計算し直す"
+              : "新しく繋がった曲だけをこの形に馴染ませて、このパターンに保存する（置いてある曲は動かさない）"}
+          >
+            {layoutBusy ? "計算中…" : "配置を更新"}
+          </button>
+          {layoutNote && <span className="basis-full text-[11.5px] text-fg-subtle">{layoutNote}</span>}
           <button
             data-edit
             onClick={() => savePattern()}

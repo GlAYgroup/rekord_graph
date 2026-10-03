@@ -77,11 +77,17 @@ export const DB = {
 /** Notion の更新をどれくらいで拾うか。DJ 練習後に書いて数分で反映されれば十分。 */
 export const REVALIDATE_SECONDS = 300;
 
-/**
- * 読み取りキャッシュのタグ。アプリからトランジションを1件書いたら
- * `revalidateTag(NOTION_TAG)` で捨てる（5分待たずにグラフへ出す）。
- */
+/** 読み取りキャッシュ全体のタグ（全部を捨てたいとき用） */
 export const NOTION_TAG = "notion";
+
+/**
+ * DB ごとの読み取りキャッシュのタグ。アプリから繋ぎを1件書いたら、**🔀Transitions のぶんだけ**
+ * `revalidateTag(dbTag(DB.transitions))` で捨てる（5分待たずにグラフへ出す）。
+ * 以前は全体のタグを捨てていたので、星1つ押すたびに 🎵Tracks・📍Cues まで読み直しになり、
+ * 次に開いた画面が待たされた（実測 2026-10-03: 547曲・881キューで約6〜7秒。🎵Tracks の6ページだけで6.1秒。
+ * 繋ぎの2ページなら約1.3秒）。🎵Tracks・📍Cues は sync（ローカル）しか書かないので5分で拾えば足りる
+ */
+export const dbTag = (dbId: string) => `notion:db:${dbId}`;
 
 function token(): string {
   const fromEnv = process.env.NOTION_TOKEN;
@@ -126,7 +132,7 @@ const inflight = new Map<string, Promise<unknown>>();
  */
 export async function request<T = unknown>(
   path: string,
-  init: { method?: string; body?: unknown; fresh?: boolean } = {},
+  init: { method?: string; body?: unknown; fresh?: boolean; tags?: string[] } = {},
 ): Promise<T> {
   const method = init.method ?? "GET";
   // まとめてよいのはキャッシュを通す読み込みだけ（書き込み・fresh は1回ずつ送る）
@@ -148,7 +154,7 @@ export async function request<T = unknown>(
 async function send<T>(
   path: string,
   method: string,
-  init: { body?: unknown; fresh?: boolean },
+  init: { body?: unknown; fresh?: boolean; tags?: string[] },
 ): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(`${API}${path}`, {
@@ -161,7 +167,7 @@ async function send<T>(
       ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       ...(init.fresh
         ? { cache: "no-store" as const }
-        : { next: { revalidate: REVALIDATE_SECONDS, tags: [NOTION_TAG] } }),
+        : { next: { revalidate: REVALIDATE_SECONDS, tags: [NOTION_TAG, ...(init.tags ?? [])] } }),
     });
     if (res.status === 429 && attempt < RETRIES) {
       // Notion が言う待ち時間（秒）に従う。書いていなければ 1, 2, 4 秒
@@ -179,7 +185,7 @@ async function send<T>(
 async function queryPage(dbId: string, cursor?: string, fresh?: boolean) {
   return request<{ results: NotionPage[]; has_more: boolean; next_cursor: string | null }>(
     `/databases/${dbId}/query`,
-    { method: "POST", body: { page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }, fresh },
+    { method: "POST", body: { page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }, fresh, tags: [dbTag(dbId)] },
   );
 }
 

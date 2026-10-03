@@ -1,7 +1,7 @@
 import "server-only";
 import { revalidateTag } from "next/cache";
 import { DIFFICULTIES } from "./difficulty";
-import { DB, NOTION_TAG, request, type NotionPage } from "./notion";
+import { DB, dbTag, request, type NotionPage } from "./notion";
 
 /**
  * 🔀Transitions への書き込み。アプリの入力画面だけが呼ぶ。
@@ -107,7 +107,7 @@ export async function createTransition(t: NewTransition): Promise<{ id: string; 
   });
 
   // 5分キャッシュを待たずにグラフ・曲ページへ反映させる（次に開いた時点で取り直す）
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
   return { id: page.id, url: (page as { url?: string }).url };
 }
 
@@ -118,7 +118,7 @@ export async function createTransition(t: NewTransition): Promise<{ id: string; 
 export async function updateTransition(id: string, t: NewTransition): Promise<void> {
   await ensureColumns();
   await request(`/pages/${id}`, { method: "PATCH", body: { properties: properties(t) }, fresh: true });
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
 }
 
 /**
@@ -127,7 +127,7 @@ export async function updateTransition(id: string, t: NewTransition): Promise<vo
  */
 export async function deleteTransition(id: string): Promise<void> {
   await request(`/pages/${id}`, { method: "PATCH", body: { archived: true }, fresh: true });
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
 }
 
 /**
@@ -143,7 +143,7 @@ export async function updateTransitionRating(id: string, rating: string | null):
     body: { properties: { 評価: selectProp(rating) } },
     fresh: true,
   });
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
 }
 
 /**
@@ -160,7 +160,7 @@ export async function updateTransitionPractice(id: string, practice: boolean): P
     body: { properties: { 要練習: { checkbox: practice } } },
     fresh: true,
   });
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
 }
 
 /**
@@ -174,7 +174,7 @@ export async function updateTransitionDifficulty(id: string, difficulty: string 
     body: { properties: { 難易度: selectProp(difficulty) } },
     fresh: true,
   });
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
 }
 
 /**
@@ -187,7 +187,7 @@ export async function updateTransitionComment(id: string, comment: string): Prom
     body: { properties: { コメント: textProp(comment) } },
     fresh: true,
   });
-  revalidateTag(NOTION_TAG, { expire: 0 });
+  revalidateTag(dbTag(DB.transitions), { expire: 0 });
 }
 
 /**

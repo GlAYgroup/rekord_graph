@@ -578,6 +578,31 @@ const REFINE_PASSES = 4;
  * 3. 繋ぎの無い曲は、その塊の下に名前順で整列させる
  *    （散らすと「未接続も表示」を押した瞬間に画面が崩壊する）
  */
+/**
+ * 位置の無い曲 `rest` を、`placed` の塊の下に格子で並べる（並びは渡した順）。力学は回さない = 速く、
+ * 同じ入力なら同じ座標。自動配置の孤立曲と、保存したパターンに無い曲（あとから増えた曲）の置き場所
+ */
+export function placeBelow(placed: Layout, rest: LayoutNode[]): Layout {
+  const out: Layout = {};
+  if (!rest.length) return out;
+  const pts = Object.values(placed);
+  const left = pts.length ? Math.min(...pts.map((p) => p.x)) : 0;
+  const bottom = pts.length ? Math.max(...pts.map((p) => p.y)) : 0;
+
+  const cell = rest.map((n) => boxOf(n));
+  const colW = Math.max(...cell.map((c) => c.w));
+  const rowH = Math.max(...cell.map((c) => c.h));
+  const cols = Math.max(1, Math.round(Math.sqrt(rest.length * 1.6)));
+
+  rest.forEach((n, i) => {
+    out[n.id] = {
+      x: Math.round(left + (i % cols) * colW),
+      y: Math.round(bottom + 160 + Math.floor(i / cols) * rowH),
+    };
+  });
+  return out;
+}
+
 export function computeLayout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout {
   const sig = signature(nodes, edges);
   const cached = cache.get(sig);
@@ -586,7 +611,6 @@ export function computeLayout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout 
   const linked = new Set<string>();
   for (const e of edges) { linked.add(e.source); linked.add(e.target); }
 
-  const byId = new Map(nodes.map((n) => [n.id, n]));
   const connected = nodes.filter((n) => linked.has(n.id));
   const isolated = nodes
     .filter((n) => !linked.has(n.id))
@@ -631,26 +655,7 @@ export function computeLayout(nodes: LayoutNode[], edges: LayoutEdge[]): Layout 
     console.log(`[layout] ${connected.length}曲 ${edges.length}繋ぎ / 力学だけ=${tries[tries.length - 1].sc.crossings}〜${tries[0].sc.crossings}交差 → 採用 cross=${bestScore?.crossings} label=${bestScore?.labelHits} (${Date.now() - t0}ms)`);
   }
 
-  if (isolated.length) {
-    // 繋がっている塊の下端・左端を基準にする（採用した形のもの）
-    const placed = connected.map((n) => out[n.id]).filter(Boolean);
-    const xs = placed.map((p) => p.x);
-    const ys = placed.map((p) => p.y);
-    const left = xs.length ? Math.min(...xs) : 0;
-    const bottom = ys.length ? Math.max(...ys) : 0;
-
-    const cell = isolated.map((n) => boxOf(byId.get(n.id) ?? n));
-    const colW = Math.max(...cell.map((c) => c.w));
-    const rowH = Math.max(...cell.map((c) => c.h));
-    const cols = Math.max(1, Math.round(Math.sqrt(isolated.length * 1.6)));
-
-    isolated.forEach((n, i) => {
-      out[n.id] = {
-        x: Math.round(left + (i % cols) * colW),
-        y: Math.round(bottom + 160 + Math.floor(i / cols) * rowH),
-      };
-    });
-  }
+  Object.assign(out, placeBelow(out, isolated));
 
   // 古いものから捨てる（Map は入れた順に回る）
   if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!);

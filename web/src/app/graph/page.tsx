@@ -3,7 +3,6 @@ import { TreeMixView } from "@/components/graph/TreeMixView";
 import type { GEdge, GNode, PanelData, RouteMap } from "@/components/graph/types";
 import { bpmDelta, cueLabel, cueOf } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
-import { computeLayout } from "@/lib/layout";
 import { listPatterns } from "@/lib/patterns";
 import { graphTiming, longestRouteFrom, longestRouteOverall } from "@/lib/route";
 import { buildTree } from "@/lib/tree";
@@ -120,11 +119,8 @@ export default async function GraphPage({
 
   const connected = new Set(g.transitions.flatMap((t) => [t.fromTrackId, t.toTrackId]));
 
-  // 配置はサーバで決める。端末ごとに計算すると誤差で形がズレるため、座標を渡す方が正しい
-  const layout = computeLayout(
-    nodes.map((n) => ({ id: n.id, label: n.name })),
-    edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
-  );
+  // 自動配置はここでは計算しない（繋ぎが増えるたびに約1.3秒かかる）。グラフ画面が「自動」を開いたとき・
+  // 「配置を更新」を押したときに /api/layouts/auto から取る
 
   // 保存済みパターン。先頭（最後に保存したもの）を既定の形として開く
   const patterns = (await patternsP) ?? [];
@@ -133,7 +129,6 @@ export default async function GraphPage({
     <GraphExplorer
       nodes={nodes}
       edges={edges}
-      layout={layout}
       patterns={patterns}
       routes={routes}
       overallRoute={{ trackIds: overall.trackIds, edgeIds: overall.transitions.map((t) => t.id) }}
