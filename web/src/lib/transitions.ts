@@ -13,6 +13,7 @@ import { DB, NOTION_TAG, request, type NotionPage } from "./notion";
 
 export type NewTransition = {
   fromTrackId: string;
+  /** 空ならキュー未定（曲とメモだけの繋ぎ） */
   fromCueId: string;
   toTrackId: string;
   toCueId: string;
@@ -30,7 +31,9 @@ export type NewTransition = {
 
 const textProp = (s: string) => ({ rich_text: s ? [{ type: "text", text: { content: s.slice(0, 1900) } }] : [] });
 const selectProp = (s?: string | null) => ({ select: s ? { name: s } : null });
-const relProp = (id: string) => ({ relation: [{ id }] });
+// 空 = 関連なし。キューを決めずに残す繋ぎがある。更新でも全列を書くので、
+// 編集でキューを外したときはここで空の関連を送って Notion 側も外す
+const relProp = (id: string) => ({ relation: id ? [{ id }] : [] });
 
 /** 作成と更新で同じ組み立てを使う（片方だけ直して食い違うのを防ぐ） */
 function properties(t: NewTransition) {

@@ -40,10 +40,23 @@ const LOOP_IN_NAME = /ループ|loop/i;
  * ただし**キュー名が既に「ループ」と言っているなら添えない** — キュー名が正で、
  * `D「1サビ終ループ」ループ` は同じことを2回言っているだけになる。
  */
-export const showsLoop = (cue: CueLike | undefined): boolean =>
+export const showsLoop = (cue: CueLike | null | undefined): boolean =>
   !!cue?.loop && !LOOP_IN_NAME.test(cue.name);
 
-export function cueLabel(cue: CueLike | undefined): string {
+/** キューを決めずに残した繋ぎ（曲とメモだけ）の表し方。「?」は参照が壊れたときだけに使う */
+export const NO_CUE_LABEL = "キュー未定";
+
+/**
+ * 繋ぎのキューID → キュー。**ID が空（キューを決めずに残した繋ぎ）なら null、
+ * ID はあるのに見つからない（参照が壊れた）なら undefined** を返して、表示で区別する。
+ */
+export function cueOf<C>(cueById: { get(id: string): C | undefined }, id: string): C | null | undefined {
+  return id ? cueById.get(id) : null;
+}
+
+/** `null` = キュー未定（`cueOf` の空 ID）、`undefined` = 参照が壊れている */
+export function cueLabel(cue: CueLike | null | undefined): string {
+  if (cue === null) return NO_CUE_LABEL;
   if (!cue) return "?";
   return `${cue.letter ?? "?"}「${cue.name || "無名"}」${showsLoop(cue) ? " ループ" : ""}`;
 }

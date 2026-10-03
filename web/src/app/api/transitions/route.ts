@@ -24,19 +24,20 @@ async function validated(body: Record<string, unknown> | null) {
   const fromCueId = str(body?.fromCueId);
   const toTrackId = str(body?.toTrackId);
   const toCueId = str(body?.toCueId);
-  if (!fromTrackId || !fromCueId || !toTrackId || !toCueId) {
-    return { error: "From/To の曲とキューが要ります", status: 400 as const };
+  // キューは任意（曲とメモだけでも残せる）。送られてきたキューだけを確かめる
+  if (!fromTrackId || !toTrackId) {
+    return { error: "From/To の曲が要ります", status: 400 as const };
   }
 
   const g = await getGraph();
   const from = g.trackById.get(fromTrackId);
   const to = g.trackById.get(toTrackId);
-  const fromCue = g.cueById.get(fromCueId);
-  const toCue = g.cueById.get(toCueId);
-  if (!from || !to || !fromCue || !toCue) {
+  const fromCue = fromCueId ? g.cueById.get(fromCueId) : null;
+  const toCue = toCueId ? g.cueById.get(toCueId) : null;
+  if (!from || !to || fromCue === undefined || toCue === undefined) {
     return { error: "知らない曲かキューです", status: 400 as const };
   }
-  if (fromCue.trackId !== fromTrackId || toCue.trackId !== toTrackId) {
+  if ((fromCue && fromCue.trackId !== fromTrackId) || (toCue && toCue.trackId !== toTrackId)) {
     return { error: "キューがその曲のものではありません", status: 400 as const };
   }
 
@@ -46,6 +47,10 @@ async function validated(body: Record<string, unknown> | null) {
   const barsAfter = numOrNull(body?.barsAfter);
   if (bars != null && barsAfter != null) {
     return { error: "小節数は「前」か「後」のどちらか片方だけ入れてください", status: 400 as const };
+  }
+  // 小節数は「To キューの何小節前／後」。基準のキューが無いと意味を持たない
+  if (!toCue && (bars != null || barsAfter != null)) {
+    return { error: "小節数は To のキューを選んだときだけ入れられます", status: 400 as const };
   }
 
   return {

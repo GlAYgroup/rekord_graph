@@ -1,4 +1,4 @@
-import { barsLabel, cueLabel, type BarsLike } from "./format";
+import { barsLabel, cueLabel, cueOf, type BarsLike } from "./format";
 import type { Graph } from "./graph";
 import { longestRouteFrom } from "./route";
 
@@ -212,8 +212,8 @@ export function buildTree(g: Graph, rootId: string): TreeData | null {
     if (n.edgeId) {
       const edge = g.transitions.find((t) => t.id === n.edgeId);
       if (edge) {
-        const fromCue = cueLabel(g.cueById.get(edge.fromCueId));
-        const toCue = cueLabel(g.cueById.get(edge.toCueId));
+        const fromCue = cueLabel(cueOf(g.cueById, edge.fromCueId));
+        const toCue = cueLabel(cueOf(g.cueById, edge.toCueId));
         const lines = viaLinesOf(fromCue, toCue, edge.technique, edge, edge.comment);
         const w = Math.ceil(Math.max(...lines.map((l) => unitsOf(l.text))) * LABEL_FONT_PX * WIDTH_SAFETY) + LABEL_PAD_X * 2;
         const h = lines.length * LABEL_LINE_H + LABEL_PAD_Y * 2;

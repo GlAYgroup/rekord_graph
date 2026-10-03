@@ -1,13 +1,21 @@
 import type { Cue } from "@/lib/types";
-import { formatPosition, loopLengthMs, showsLoop } from "@/lib/format";
+import { formatPosition, loopLengthMs, NO_CUE_LABEL, showsLoop } from "@/lib/format";
 
 /**
  * ホットキュー1つ。機材のラバーパッドに寄せた見た目にする。
  * DJ 中に実際に押すのはこの記号なので、画面で一番強い要素にする（DESIGN.md）。
  * 表示するのは rekordbox 実機の記号だけ。Notion のメモ由来の記号は信用しない。
  */
-export function CuePad({ cue, size = "md" }: { cue: Cue | undefined; size?: "md" | "sm" }) {
+export function CuePad({ cue, size = "md" }: { cue: Cue | null | undefined; size?: "md" | "sm" }) {
   const big = size === "md";
+  // null = キューを決めずに残した繋ぎ（曲とメモだけ）。壊れた参照（undefined）の「?」と見分ける
+  if (cue === null) {
+    return (
+      <span className={`grid place-items-center rounded-pad border border-dashed border-border-bright text-fg-subtle ${big ? "size-12 text-[13px]" : "size-9 text-[11px]"}`}>
+        未定
+      </span>
+    );
+  }
   if (!cue) {
     return (
       <span className={`grid place-items-center rounded-pad border border-dashed border-warn/50 text-warn ${big ? "size-12" : "size-9"}`}>
@@ -38,7 +46,7 @@ export function CuePad({ cue, size = "md" }: { cue: Cue | undefined; size?: "md"
  * `ループ_ドゥドゥドゥ_8小節` が 2.7 秒のように、キュー名と食い違う。キュー名が正）。
  * キュー名が既に「ループ」と言っているキューには出さない（`showsLoop`）。
  */
-export function LoopTag({ cue }: { cue: Cue | undefined }) {
+export function LoopTag({ cue }: { cue: Cue | null | undefined }) {
   if (!showsLoop(cue)) return null;
   const len = cue ? loopLengthMs(cue) : null;
   return (
@@ -52,7 +60,7 @@ export function LoopTag({ cue }: { cue: Cue | undefined }) {
 }
 
 /** パッド＋キュー名＋位置。1行で読める塊。 */
-export function CueLine({ cue, size = "md" }: { cue: Cue | undefined; size?: "md" | "sm" }) {
+export function CueLine({ cue, size = "md" }: { cue: Cue | null | undefined; size?: "md" | "sm" }) {
   return (
     <div className="flex items-center gap-3 min-w-0">
       <CuePad cue={cue} size={size} />
@@ -60,13 +68,17 @@ export function CueLine({ cue, size = "md" }: { cue: Cue | undefined; size?: "md
         <span className="flex flex-wrap items-center gap-1.5 text-[17px] leading-snug">
           {/* キュー名は**刈らない**。長ければ折り返す（プレイ中に読む情報なので） */}
           <span className="min-w-0 break-words">
-            {cue?.name || <span className="text-fg-subtle">（名前なし）</span>}
+            {cue === null
+              ? <span className="text-fg-subtle">{NO_CUE_LABEL}</span>
+              : cue?.name || <span className="text-fg-subtle">（名前なし）</span>}
           </span>
           <LoopTag cue={cue} />
         </span>
-        <span className="block font-mono text-[12px] text-fg-subtle tabular-nums">
-          {formatPosition(cue?.positionMs ?? null)}
-        </span>
+        {cue !== null && (
+          <span className="block font-mono text-[12px] text-fg-subtle tabular-nums">
+            {formatPosition(cue?.positionMs ?? null)}
+          </span>
+        )}
       </span>
     </div>
   );

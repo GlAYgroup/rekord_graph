@@ -32,11 +32,12 @@ export function TrackTimeline({
 
   return (
     <div className="relative h-7 w-full rounded-md bg-bg-deep border border-border overflow-hidden">
-      {/* 再生する側の範囲。exit=ここまで流してきた / enter=ここから流していく */}
-      <div
+      {/* 再生する側の範囲。exit=ここまで流してきた / enter=ここから流していく。
+          キューを決めていない繋ぎ（highlightCueId が空）では、どこからか分からないので塗らない */}
+      {highlighted && <div
         className="absolute inset-y-0 bg-accent/12"
         style={mode === "exit" ? { left: 0, width: `${hx}%` } : { left: `${hx}%`, right: 0 }}
-      />
+      />}
       {minuteTicks.map((x, i) => (
         <span key={i} className="absolute inset-y-0 w-px bg-border-bright/60" style={{ left: `${x}%` }} />
       ))}

@@ -1,7 +1,7 @@
 import { GraphExplorer } from "@/components/graph/GraphExplorer";
 import { TreeMixView } from "@/components/graph/TreeMixView";
 import type { GEdge, GNode, PanelData, RouteMap } from "@/components/graph/types";
-import { bpmDelta, cueLabel } from "@/lib/format";
+import { bpmDelta, cueLabel, cueOf } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 import { computeLayout } from "@/lib/layout";
 import { listPatterns } from "@/lib/patterns";
@@ -81,8 +81,8 @@ export default async function GraphPage({
     const item = {
       id: t.id,
       // ループの印は文字列に焼き込む（パネルは組み立て済みの文字列だけを受け取る）
-      fromCue: cueLabel(g.cueById.get(t.fromCueId)),
-      toCue: cueLabel(g.cueById.get(t.toCueId)),
+      fromCue: cueLabel(cueOf(g.cueById, t.fromCueId)),
+      toCue: cueLabel(cueOf(g.cueById, t.toCueId)),
       comment: t.comment,
       rating: t.rating,
       practice: t.practice,

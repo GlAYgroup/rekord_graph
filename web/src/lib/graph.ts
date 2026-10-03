@@ -194,8 +194,9 @@ async function build(): Promise<Graph> {
       needsReview: selectName(p.properties["同期ステータス"]) === "要確認",
       createdTime: p.created_time ?? "",
     }))
-    // 4つの関連がすべて埋まっていない行は、書きかけとみなして地図に載せない
-    .filter((t) => t.fromTrackId && t.fromCueId && t.toTrackId && t.toCueId);
+    // 曲が両方埋まっていない行は、書きかけとみなして地図に載せない。
+    // キューは空でよい（曲とメモだけで残した繋ぎ。表示は `cueOf` が「キュー未定」にする）
+    .filter((t) => t.fromTrackId && t.toTrackId);
 
   const cuesByTrack = new Map<string, Cue[]>();
   for (const c of cues) {

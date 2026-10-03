@@ -1,5 +1,5 @@
 import { TransitionForm, type FormTrack } from "@/components/TransitionForm";
-import { cueLabel } from "@/lib/format";
+import { cueLabel, cueOf } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 
 export const metadata = { title: "繋ぎを追加 | rekord_graph" };
@@ -50,7 +50,7 @@ export default async function NewTransitionPage({
   // 登録済みの繋ぎ（消せるように一覧で出す）。**新しいものが上**。
   // 作成時刻で並べる: Notion の返す順に保証は無く、入れた直後の1行が
   // 一覧のどこに出るか分からないと「保存できたのか」がその場で読めない
-  const cue = (id: string) => cueLabel(g.cueById.get(id));
+  const cue = (id: string) => cueLabel(cueOf(g.cueById, id));
   const list = [...g.transitions]
     .sort((a, b) => b.createdTime.localeCompare(a.createdTime))
     .map((t) => ({

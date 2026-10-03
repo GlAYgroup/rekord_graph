@@ -150,7 +150,8 @@ export function TransitionForm({
    */
   const epochRef = useRef(0);
 
-  const ready = !!(fromTrack && fromCue && toTrack && toCue);
+  // キューは任意。曲が両方決まれば保存できる（キューを決めずにメモだけ残す繋ぎ）
+  const ready = !!(fromTrack && toTrack);
   /** フォームの中身を1本にしたもの。保存した時点と比べて「触ったか」を見る */
   const formKey = JSON.stringify([
     fromTrack?.id ?? null, fromCue?.id ?? null, toTrack?.id ?? null, toCue?.id ?? null,
@@ -165,7 +166,7 @@ export function TransitionForm({
       )
     : null;
   const duplicate =
-    ready && !editingId && existing.includes(keyOf(fromTrack.id, fromCue.id, toTrack.id, toCue.id));
+    ready && !editingId && existing.includes(keyOf(fromTrack.id, fromCue?.id ?? "", toTrack.id, toCue?.id ?? ""));
   /**
    * 編集中の行そのもの。フォームの削除ボタンはこれを消す。
    * `editingId` ではなく行が見つかったかで出し分ける — 一覧が入れ替わって
@@ -219,8 +220,8 @@ export function TransitionForm({
     setBusy(true); setError(null);
     try {
       const payload = {
-        fromTrackId: fromTrack.id, fromCueId: fromCue.id,
-        toTrackId: toTrack.id, toCueId: toCue.id,
+        fromTrackId: fromTrack.id, fromCueId: fromCue?.id ?? "",
+        toTrackId: toTrack.id, toCueId: toCue?.id ?? "",
         technique, rating, difficulty, bars, barsAfter, practice, chain, comment,
       };
       const res = await fetch("/api/transitions", {
@@ -239,8 +240,8 @@ export function TransitionForm({
         fromCue: cueLabel(fromCue),
         toCue: cueLabel(toCue),
         comment,
-        fromTrackId: fromTrack.id, fromCueId: fromCue.id,
-        toTrackId: toTrack.id, toCueId: toCue.id,
+        fromTrackId: fromTrack.id, fromCueId: fromCue?.id ?? "",
+        toTrackId: toTrack.id, toCueId: toCue?.id ?? "",
         technique, rating, difficulty,
         bars: bars === "" ? null : Number(bars),
         barsAfter: barsAfter === "" ? null : Number(barsAfter),
@@ -385,7 +386,7 @@ export function TransitionForm({
       <p className="mt-1 text-[13px] text-fg-muted">
         {editingId
           ? "曲もキューも選び直せます。保存すると同じ行を書き換えます。"
-          : "曲を選ぶと、その曲のホットキューだけが並びます。書き込み先は 🔀Transitions です。"}
+          : "曲を選ぶと、その曲のホットキューだけが並びます。キューは決めずに、曲とメモだけでも保存できます。"}
       </p>
 
       <Side
@@ -395,7 +396,7 @@ export function TransitionForm({
         track={fromTrack}
         cue={fromCue}
         onTrack={(t) => pick("from", t)}
-        onCue={setFromCue}
+        onCue={(c) => setFromCue((cur) => (cur?.id === c.id ? null : c))}
         onClear={() => { setFromTrack(null); setFromCue(null); }}
       />
 
@@ -408,8 +409,13 @@ export function TransitionForm({
         track={toTrack}
         cue={toCue}
         onTrack={(t) => pick("to", t)}
-        onCue={setToCue}
-        onClear={() => { setToTrack(null); setToCue(null); }}
+        onCue={(c) => {
+          // もう一度押すと外す（キュー未定に戻す）。基準のキューが無いと小節数は意味を持たないので一緒に空にする
+          const next = toCue?.id === c.id ? null : c;
+          setToCue(next);
+          if (!next) { setBars(""); setBarsAfter(""); }
+        }}
+        onClear={() => { setToTrack(null); setToCue(null); setBars(""); setBarsAfter(""); }}
       />
 
       {/* ── 任意項目 ── */}
@@ -481,7 +487,7 @@ export function TransitionForm({
                 inputMode="numeric"
                 value={bars}
                 onChange={(e) => setBars(e.target.value)}
-                disabled={barsAfter !== ""}
+                disabled={barsAfter !== "" || !toCue}
                 placeholder="16"
                 className="mt-1 h-12 w-full rounded-card border border-border bg-surface-2 px-3 font-mono text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent disabled:opacity-40"
               />
@@ -493,7 +499,7 @@ export function TransitionForm({
                 inputMode="numeric"
                 value={barsAfter}
                 onChange={(e) => setBarsAfter(e.target.value)}
-                disabled={bars !== ""}
+                disabled={bars !== "" || !toCue}
                 placeholder="8"
                 className="mt-1 h-12 w-full rounded-card border border-border bg-surface-2 px-3 font-mono text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent disabled:opacity-40"
               />
@@ -502,6 +508,11 @@ export function TransitionForm({
           {/* 意味の取り違えがいちばん怖い項目なので、読み下した文をその場で返す */}
           {barsSentence && (
             <span className="mt-1 block text-[11.5px] text-fg-subtle">{barsSentence}</span>
+          )}
+          {!toCue && (
+            <span className="mt-1 block text-[11px] text-fg-subtle">
+              TO のキューを選ぶと入れられます（何小節ずらすかの基準になるため）。
+            </span>
           )}
           {(bars !== "" || barsAfter !== "") && (
             <span className="mt-1 block text-[11px] text-fg-subtle">
@@ -907,12 +918,17 @@ function Side({
       {track && (
         <div className="mt-3">
           {track.cues.length === 0 ? (
-            <p className="rounded-card border border-warn/40 bg-warn/8 px-3 py-2.5 text-[13px] text-fg-muted">
-              この曲にはホットキューが登録されていません。rekordbox でキューを打ってから
+            <p className="rounded-card border border-border bg-surface-2 px-3 py-2.5 text-[13px] text-fg-muted">
+              この曲にはホットキューがありません。キューを決めずにこのまま保存できます。
+              キューを付けたいときは rekordbox で打ってから
               <code className="mx-1 font-mono text-[12px]">tools/sync.py</code>
               を回すと出てきます（アプリ側の反映は最大5分）。
             </p>
           ) : (
+            <>
+            <p className="mb-1.5 text-[11.5px] text-fg-subtle">
+              {cue ? "もう一度押すと外せます（キュー未定）" : "キューは任意です。選ばずに保存するとキュー未定になります"}
+            </p>
             <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {track.cues.map((c) => {
                 const on = cue?.id === c.id;
@@ -940,6 +956,7 @@ function Side({
                 );
               })}
             </ul>
+            </>
           )}
         </div>
       )}

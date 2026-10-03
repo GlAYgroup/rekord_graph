@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PracticeToggle } from "@/components/PracticeToggle";
 import { RatingPicker } from "@/components/RatingPicker";
-import { barsLabel, cueLabel } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 
 export const metadata = { title: "練習 | rekord_graph" };
@@ -41,7 +41,7 @@ export default async function PracticePage() {
         {rows.map((t) => {
           const from = g.trackById.get(t.fromTrackId);
           const to = g.trackById.get(t.toTrackId);
-          const toCue = g.cueById.get(t.toCueId);
+          const toCue = cueOf(g.cueById, t.toCueId);
           return (
             <li key={t.id} className="rounded-card border border-border bg-surface">
               {/* 行の本体は From の曲ページへ。波形・キュー込みのカードはそちらで見る */}
@@ -51,7 +51,7 @@ export default async function PracticePage() {
                   <span className="text-hot">→</span> {to?.name ?? "?"}<Bpm value={to?.bpm ?? null} />
                 </span>
                 <span className="mt-0.5 block font-mono text-[11.5px] text-fg-subtle break-words">
-                  {cueLabel(g.cueById.get(t.fromCueId))} → {cueLabel(toCue)}
+                  {cueLabel(cueOf(g.cueById, t.fromCueId))} → {cueLabel(toCue)}
                 </span>
                 {(t.technique || barsLabel(t, cueLabel(toCue)) || t.comment) && (
                   <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-fg-muted">

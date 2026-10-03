@@ -1,4 +1,4 @@
-import { barsLabel, cueLabel } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import type { Cue, Track, Transition } from "@/lib/types";
 
 /**
@@ -22,14 +22,14 @@ export function RouteSteps({
     <ol className="space-y-1">
       {trackIds.map((id, i) => {
         const via = i > 0 ? edges[i - 1] : null;
-        const toCue = via ? cueLabel(cueById.get(via.toCueId)) : "";
+        const toCue = via ? cueLabel(cueOf(cueById, via.toCueId)) : "";
         const bars = via ? barsLabel(via, toCue) : null;
         const strong = marked ? marked.has(id) : true;
         return (
           <li key={`${id}-${i}`}>
             {via && (
               <p className="ml-7 border-l border-border py-1 pl-3 text-[12px] text-fg-subtle">
-                {cueLabel(cueById.get(via.fromCueId))} → {toCue}
+                {cueLabel(cueOf(cueById, via.fromCueId))} → {toCue}
                 {bars && ` · ${bars}`}
               </p>
             )}

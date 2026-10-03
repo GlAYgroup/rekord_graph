@@ -219,7 +219,7 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
     rekey(plan)
 
     # 作り直しで結び直せなかった削除のうち、🔀Transitions から参照されている行は消さない。
-    # 消すと繋ぎのリンクが切れ、アプリからその繋ぎごと見えなくなる（4点そろわない行は載せない）。
+    # 消すと繋ぎのリンクが切れ、アプリからその繋ぎごと見えなくなる（壊れた参照は「キュー未定」とも別物として扱う）。
     # 人が繋ぎのキューを選び直すまで「削除(保留)」として毎回見せる（曲行の track_hold と同じ扱い）
     if any(p["kind"] == "delete" for p in plan):
         cue_refs = {r.replace("-", "") for r in _transition_cue_refs()}

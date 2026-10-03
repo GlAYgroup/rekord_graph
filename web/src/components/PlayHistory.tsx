@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { barsLabel, cueLabel } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import { deleteSet, readHistory, type PlaySet } from "@/lib/playlog";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -110,7 +110,7 @@ export function PlayHistory({
                   const via = step.viaTransitionId
                     ? transitionById.get(step.viaTransitionId)
                     : undefined;
-                  const toCueLabel = via ? cueLabel(cueById.get(via.toCueId)) : "";
+                  const toCueLabel = via ? cueLabel(cueOf(cueById, via.toCueId)) : "";
                   return (
                     <li key={`${set.id}-${i}`} className="px-4 py-2.5">
                       <div className="flex items-baseline gap-2 text-[14.5px]">
@@ -134,7 +134,7 @@ export function PlayHistory({
                       {via ? (
                         <div className="mt-0.5 pl-[18px]">
                           <span className="font-mono text-[11.5px] break-words text-fg-subtle">
-                            {cueLabel(cueById.get(via.fromCueId))} → {toCueLabel}
+                            {cueLabel(cueOf(cueById, via.fromCueId))} → {toCueLabel}
                           </span>
                           {(via.technique || barsLabel(via, toCueLabel)) && (
                             <span className="ml-2 text-[11.5px] text-fg-muted">

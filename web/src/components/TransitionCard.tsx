@@ -14,8 +14,9 @@ export function TransitionCard({
 }: {
   transition: Transition;
   otherTrack: Track | undefined;
-  fromCue: Cue | undefined;
-  toCue: Cue | undefined;
+  /** null = キューを決めずに残した繋ぎ（`cueOf`） */
+  fromCue: Cue | null | undefined;
+  toCue: Cue | null | undefined;
   fromTrackCues: Cue[];
   toTrackCues: Cue[];
   fromDuration: number | null;

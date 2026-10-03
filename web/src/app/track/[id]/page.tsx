@@ -5,7 +5,7 @@ import { PracticeToggle } from "@/components/PracticeToggle";
 import { RatingPicker } from "@/components/RatingPicker";
 import { TransitionCard } from "@/components/TransitionCard";
 import { TransitionDetails } from "@/components/TransitionDetails";
-import { cueLabel } from "@/lib/format";
+import { cueLabel, cueOf } from "@/lib/format";
 import { bpmDelta, formatPosition, getGraph, type Graph, type Transition } from "@/lib/graph";
 import { longestRouteFrom } from "@/lib/route";
 
@@ -21,8 +21,8 @@ const hrefWith = (trackId: string, path: string[]) => {
 /** カード1枚に渡す素材をグラフから引き出す。 */
 function cardProps(g: Graph, t: Transition) {
   return {
-    fromCue: g.cueById.get(t.fromCueId),
-    toCue: g.cueById.get(t.toCueId),
+    fromCue: cueOf(g.cueById, t.fromCueId),
+    toCue: cueOf(g.cueById, t.toCueId),
     fromTrackCues: g.cuesByTrack.get(t.fromTrackId) ?? [],
     toTrackCues: g.cuesByTrack.get(t.toTrackId) ?? [],
     fromDuration: g.trackById.get(t.fromTrackId)?.durationSec ?? null,
@@ -173,7 +173,7 @@ export default async function TrackPage({
                         <span className="min-w-0 flex-1">
                           <span className="block text-[14px] break-words">{from?.name ?? "?"}</span>
                           <span className="block break-words text-[12px] text-fg-subtle">
-                            {cueLabel(g.cueById.get(t.fromCueId))} → {cueLabel(g.cueById.get(t.toCueId))}
+                            {cueLabel(cueOf(g.cueById, t.fromCueId))} → {cueLabel(cueOf(g.cueById, t.toCueId))}
                           </span>
                         </span>
                         <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
@@ -182,7 +182,7 @@ export default async function TrackPage({
                       </Link>
                       <TransitionDetails
                         transition={t}
-                        toCueLabel={cueLabel(g.cueById.get(t.toCueId))}
+                        toCueLabel={cueLabel(cueOf(g.cueById, t.toCueId))}
                         className="border-t border-border px-3 py-2"
                       />
                       {/* 入ってくる側の繋ぎも、ここで星を付け替え・キューを直せる */}

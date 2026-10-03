@@ -1,7 +1,7 @@
 import { CueLine } from "./CuePad";
 import { TrackTimeline } from "./TrackTimeline";
 import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
-import { barsLabel, cueLabel } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import type { Cue, Track, Transition } from "@/lib/types";
 
 /**
@@ -20,8 +20,8 @@ export function HopDetails({
   /** 星の印を出すか（/play の下見中は押せる星が別にあるので出さない） */
   showRating: boolean;
 }) {
-  const fromCue = cueById.get(t.fromCueId);
-  const toCue = cueById.get(t.toCueId);
+  const fromCue = cueOf(cueById, t.fromCueId);
+  const toCue = cueOf(cueById, t.toCueId);
   const bars = barsLabel(t, cueLabel(toCue));
   return (
     <div className="min-w-0 space-y-2 sm:flex-1">

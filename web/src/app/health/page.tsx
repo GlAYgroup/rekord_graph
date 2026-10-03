@@ -11,8 +11,9 @@ export default async function HealthPage() {
   const g = await getGraph();
 
   const needsReview = g.transitions.filter((t) => t.needsReview);
+  // キューが空の繋ぎ（曲とメモだけ）は壊れていない。ID があるのに見つからないものだけ
   const brokenCue = g.transitions.filter(
-    (t) => !g.cueById.has(t.fromCueId) || !g.cueById.has(t.toCueId),
+    (t) => (t.fromCueId && !g.cueById.has(t.fromCueId)) || (t.toCueId && !g.cueById.has(t.toCueId)),
   );
   const noCues = g.tracks.filter((t) => (g.cuesByTrack.get(t.id)?.length ?? 0) === 0);
   const unnamedCues = [...g.cueById.values()].filter((c) => !c.name);

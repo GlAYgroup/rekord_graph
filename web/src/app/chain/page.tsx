@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CuePad, LoopTag } from "@/components/CuePad";
-import { chainLabel, showsLoop } from "@/lib/format";
+import { chainLabel, cueOf, NO_CUE_LABEL, showsLoop } from "@/lib/format";
 import { getGraph, type Cue, type Graph, type Transition } from "@/lib/graph";
 
 export const metadata = { title: "チェーン | rekord_graph" };
@@ -73,12 +73,12 @@ const Bpm = ({ value }: { value: number | null }) => (
  * （列の端へ離すと、どのキューの札なのかが読めない）。
  * キュー名は刈らない（キュー名が正。`助走 1サビ…` では別のキューと見分けられない）。長ければ折り返す
  */
-function CueCell({ cue }: { cue: Cue | undefined }) {
+function CueCell({ cue }: { cue: Cue | null | undefined }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
       <CuePad cue={cue} size="sm" />
       <span className="min-w-0 break-words text-[13px] text-fg-muted">
-        {cue?.name}
+        {cue === null ? NO_CUE_LABEL : cue?.name}
         {cue && showsLoop(cue) && <>{" "}<LoopTag cue={cue} /></>}
       </span>
     </span>
@@ -110,9 +110,9 @@ function Row({ g, t, branch }: { g: Graph; t: Transition; branch?: boolean }) {
           {to?.name ?? "?"}
           <Bpm value={to?.bpm ?? null} />
         </Link>
-        <CueCell cue={g.cueById.get(t.fromCueId)} />
+        <CueCell cue={cueOf(g.cueById, t.fromCueId)} />
         <span className="text-[12px] text-fg-subtle">→</span>
-        <CueCell cue={g.cueById.get(t.toCueId)} />
+        <CueCell cue={cueOf(g.cueById, t.toCueId)} />
       </div>
       {t.comment && <p className="mt-1.5 break-words text-[13px] text-fg-subtle">{t.comment}</p>}
     </li>

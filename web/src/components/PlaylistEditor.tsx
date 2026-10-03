@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { minutesLabel, timingOf } from "@/lib/duration";
-import { barsLabel, cueLabel } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import { alignHops, checkPlaylist, type Playlist } from "@/lib/playlist";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -202,7 +202,7 @@ export function PlaylistEditor({
           const others = i + 1 < items.length
             ? transitions.filter((x) => x.fromTrackId === trackIds[i] && x.toTrackId === trackIds[i + 1])
             : [];
-          const toCue = via ? cueLabel(cueById.get(via.toCueId)) : "";
+          const toCue = via ? cueLabel(cueOf(cueById, via.toCueId)) : "";
           const bars = via ? barsLabel(via, toCue) : null;
           return (
             <li key={`${rb}-${i}`}>
@@ -226,7 +226,7 @@ export function PlaylistEditor({
                 <div className="ml-8 border-l border-border py-1 pl-3 text-[12px]">
                   {via ? (
                     <span className="text-fg-subtle">
-                      {cueLabel(cueById.get(via.fromCueId))} → {toCue}
+                      {cueLabel(cueOf(cueById, via.fromCueId))} → {toCue}
                       {bars && ` · ${bars}`}
                     </span>
                   ) : (
@@ -244,7 +244,7 @@ export function PlaylistEditor({
                     >
                       {others.map((x) => (
                         <option key={x.id} value={x.id}>
-                          {`${cueLabel(cueById.get(x.fromCueId))} → ${cueLabel(cueById.get(x.toCueId))}${x.rating ? ` ${x.rating}` : ""}`}
+                          {`${cueLabel(cueOf(cueById, x.fromCueId))} → ${cueLabel(cueOf(cueById, x.toCueId))}${x.rating ? ` ${x.rating}` : ""}`}
                         </option>
                       ))}
                     </select>
