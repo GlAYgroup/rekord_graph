@@ -194,12 +194,14 @@ def title_problems(title: str) -> list[str]:
 
 
 def audit(entries: list[dict]) -> None:
-    """同期対象の曲のうち、形式・アーティスト・原曲の分類が揃っていないものを並べる（読むだけ）。
-    新しく取り込んだ曲は旧ファイル名のまま入ってくるので、取り込みのたびにこれで拾う"""
+    """整える対象の曲のうち、形式・アーティスト・原曲の分類が揃っていないものを並べる（読むだけ）。
+    新しく取り込んだ曲は旧ファイル名のまま入ってくるので、取り込みのたびにこれで拾う。
+    対象は同期対象から rekordbox.renameExcludePlaylists（`*_check_repo`）だけに入っている曲を外したもの"""
     import rb_export
 
     queued = {str(e["id"]): e.get("status", "ok") for e in entries}
-    tracks = rb_export.export_configured()["tracks"]
+    targets = rb_export.rename_track_ids()
+    tracks = [t for t in rb_export.export_configured()["tracks"] if t["id"] in targets]
     rows = []
     for t in tracks:
         why = title_problems(t["title"])
@@ -216,7 +218,7 @@ def audit(entries: list[dict]) -> None:
               f"My Tag: {', '.join(t['myTags']) or '（なし）'}")
         for w in why:
             print(f"    - {w}")
-    print(f"\n{len(rows)} 曲（同期対象 {len(tracks)} 曲のうち）")
+    print(f"\n{len(rows)} 曲（整える対象 {len(tracks)} 曲のうち）")
 
 
 def main() -> int:

@@ -42,8 +42,11 @@ description: rekordbox の曲名・アーティスト・ジャンル（と My Ta
    ./.venv/bin/python tools/rb_tags.py --audit
    ```
 
-   同期対象の曲のうち「形式から外れた曲名」「アーティストが空」「原曲の分類（My Tag）なし」を並べる。
-   機械的に分かることだけで、直した後の値は出さない
+   整える対象の曲のうち「形式から外れた曲名」「アーティストが空」「原曲の分類（My Tag）なし」を並べる。
+   機械的に分かることだけで、直した後の値は出さない。
+   **整える対象 = `Use` 配下のプレイリストのうち `*_check_repo` 以外に入っている曲**（`config.json` の
+   `rekordbox.renameExcludePlaylists`）。`*_check_repo` は使うか決めていない曲の置き場なので直さない。
+   check_repo と他のプレイリストの両方に入っている曲は対象。sync の範囲（`scopePlaylists`）は変わらない
 
 2. **1曲ずつ原曲を調べる。** 旧ファイル名・リミキサー名から原曲を特定し、`WebSearch` / `WebFetch` で
    **VocaDB（ボカロ）・公式の配布ページ（SoundCloud 等）** を当たって、原曲タイトルの正式表記と原曲アーティストを確かめる。

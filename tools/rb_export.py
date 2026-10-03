@@ -14,6 +14,7 @@ rekordbox 起動中は -wal に未反映の変更があるので、必ずコピ�
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import os
 import json
 import shutil
@@ -79,10 +80,12 @@ class ScopeError(ValueError):
     """rekordbox.scopePlaylists に書いたプレイリスト/フォルダが rekordbox に無い。"""
 
 
-def scope_track_ids(playlists: list, contents_of, scope: list[str]) -> set[str]:
+def scope_track_ids(playlists: list, contents_of, scope: list[str],
+                    exclude: list[str] | None = None) -> set[str]:
     """scope の各名前（`フォルダ/プレイリスト` のように / で区切れる）の配下にある曲ID。
 
-    フォルダなら中を全部たどる。名前が1つでも見つからなければ止める —
+    フォルダなら中を全部たどる。`exclude`（`*_check_repo` のようなワイルドカード）に名前が当たる
+    プレイリストは中を見ない。外すのはプレイリスト単位なので、他のプレイリストにも入っている曲は残る。名前が1つでも見つからなければ止める —
     黙って空振りすると、その配下の曲が全部「消えた曲」に見える
     （priorityPlaylist の「ボカロ_整理済」は名前が変わって何にも当たらないまま動いていた。2026-10-03）
     """
@@ -102,6 +105,8 @@ def scope_track_ids(playlists: list, contents_of, scope: list[str]) -> set[str]:
     ids: set[str] = set()
 
     def walk(node) -> None:
+        if any(fnmatch.fnmatchcase(node.Name, pat) for pat in exclude or []):
+            return
         if node.is_folder:
             for c in children[str(node.ID)]:
                 walk(c)
@@ -120,6 +125,27 @@ def scope_track_ids(playlists: list, contents_of, scope: list[str]) -> set[str]:
         raise ScopeError(f"rekordbox.scopePlaylists のプレイリスト/フォルダが見つかりません: {missing}\n"
                          f"  一番上にあるもの: {roots}")
     return ids
+
+
+def rename_track_ids() -> set[str]:
+    """曲名を整える対象（`rb_tags.py --audit`）の曲ID = scopePlaylists 配下から
+    rekordbox.renameExcludePlaylists に名前が当たるプレイリストを外したもの。
+
+    `*_check_repo` は取り込んだばかりで使うか決めていない曲の置き場なので、曲名を整える手間をかけない。
+    sync の範囲（scopePlaylists）はそのまま — 外すと Notion から見えなくなる
+    """
+    from pyrekordbox import Rekordbox6Database
+
+    opts = config.rekordbox_options()
+    if not opts["scopePlaylists"]:
+        raise ScopeError("rekordbox.scopePlaylists が空です（曲名を整える対象はその配下で決めます）")
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Rekordbox6Database(path=str(copy_db(Path(tmp))), unlock=True)
+        try:
+            return scope_track_ids(db.get_playlist().all(), db.get_playlist_contents,
+                                   opts["scopePlaylists"], opts["renameExcludePlaylists"])
+        finally:
+            db.close()
 
 
 def export_configured() -> dict:

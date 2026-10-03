@@ -21,7 +21,9 @@
          "rekordbox": {
            "scopePlaylists": ["vocalo", "Anime"],   # 省略可。このプレイリスト/フォルダ配下の曲だけ扱う
                                                     # （`フォルダ/プレイリスト` とも書ける。指定すると folderFilter は使わない）
-           "folderFilter": "DJ_songs",              # 省略可。このパス片を含む曲だけ扱う
+           "renameExcludePlaylists": ["*_check_repo"],  # 省略可。曲名を整える対象（rb_tags --audit）から
+                                                    # 外すプレイリスト名（ワイルドカード可）。sync の範囲は変えない
+         "folderFilter": "DJ_songs",              # 省略可。このパス片を含む曲だけ扱う
            "priorityPlaylist": "メイン"              # 省略可。このプレイリストの曲は必ず含める
          }
        }
@@ -99,6 +101,7 @@ def rekordbox_options() -> dict:
     env_scope = [x.strip() for x in os.environ.get("REKORDBOX_SCOPE_PLAYLISTS", "").split(",") if x.strip()]
     return {
         "scopePlaylists": env_scope or rb.get("scopePlaylists") or None,
+        "renameExcludePlaylists": rb.get("renameExcludePlaylists") or [],
         "folderFilter": os.environ.get("REKORDBOX_FOLDER_FILTER") or rb.get("folderFilter") or None,
         "priorityPlaylist": os.environ.get("REKORDBOX_PRIORITY_PLAYLIST") or rb.get("priorityPlaylist") or None,
     }
