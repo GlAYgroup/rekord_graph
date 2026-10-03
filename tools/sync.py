@@ -240,6 +240,15 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
         plan.append({"kind": "track_add", "uuid": tid, "track": t,
                      "summary": f"新しい曲: {_track_title(t)}"})
 
+    # ホットキューが1つも無い曲も載せる。繋ぎはキューを決めずに曲とメモだけでも残せるので、
+    # 範囲（scopePlaylists）に入れた曲は全部アプリで選べるようにする
+    for tid, t in _RB_TRACKS.items():
+        if tid in pages or tid in seen_tracks:
+            continue
+        seen_tracks.add(tid)
+        plan.append({"kind": "track_add", "uuid": tid, "track": t,
+                     "summary": f"新しい曲: {_track_title(t)}（ホットキューなし）"})
+
     # 既存の曲行が実機とズレていたら直す。
     # **これが無いと、実機で曲名やアーティストを整えても Notion に一生届かない**
     # （`track_add` は新規作成しかしないため。実測 2026-09-09: 71件中57件が古いまま残っていた）。
