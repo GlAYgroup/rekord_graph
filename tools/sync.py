@@ -110,13 +110,19 @@ def cue_title(short_name: str, letter: str | None, name: str) -> str:
 
 
 _RB_TRACKS: dict[str, dict] = {}  # rekordbox の曲ID -> 曲情報（🎵Tracks に無い曲を作るのに使う）
+# ライブラリにはあるが rekordbox.scopePlaylists / folderFilter で外した曲ID。
+# 「rekordbox から消えた」とは別物なので、この曲の行（曲・キュー）は消さずにそのまま残す
+_OUT_OF_SCOPE: set[str] = set()
 
 
 def load_rekordbox() -> dict[str, dict]:
     """UUID -> キューの現状（rekordbox が唯一の正）。"""
-    tracks = rb_export.export(na.config.rekordbox_options()["folderFilter"])["tracks"]
+    data = rb_export.export_configured()
+    tracks = data["tracks"]
     names = build_short_names(tracks)
     _RB_TRACKS.clear()
+    _OUT_OF_SCOPE.clear()
+    _OUT_OF_SCOPE.update(data["outOfScope"])
     out = {}
     unknown = []
     for t in tracks:
@@ -203,8 +209,10 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
             "summary": r["title"],
         })
 
+    # 範囲外の曲（プレイリストから外しただけ）のキューは消さない。曲ページID で引くので先に引いておく
+    kept_pages = {page_id.replace("-", "") for rbid, page_id in _track_pages().items() if rbid in _OUT_OF_SCOPE}
     for uuid, n in nt.items():
-        if uuid not in rb:
+        if uuid not in rb and (n["trackPageId"] or "").replace("-", "") not in kept_pages:
             plan.append({"kind": "delete", "uuid": uuid, "notion": n,
                          "summary": f"rekordbox から消えたキュー: {n['title']}"})
 
@@ -251,7 +259,8 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
     # リネーム等で置き換わった古い行が 🎵Tracks に残り続ける
     # （アプリの曲一覧に「0キュー」の重複として出る。実測: イワンポルカ旧行）。
     # 消してよいのは、キュー行が1件も残っておらず 🔀Transitions からの参照も無いときだけ。
-    stale = {page_id: rbid for rbid, page_id in pages.items() if rbid not in _RB_TRACKS}
+    stale = {page_id: rbid for rbid, page_id in pages.items()
+             if rbid not in _RB_TRACKS and rbid not in _OUT_OF_SCOPE}
     if stale:
         live_cues = {n["trackPageId"] for n in nt.values()}
         refs = _transition_track_refs()
@@ -560,7 +569,11 @@ def main() -> int:
     args = ap.parse_args()
 
     print("rekordbox を読み込み中…（master.db はコピーしてから読みます）")
-    rb = load_rekordbox()
+    try:
+        rb = load_rekordbox()
+    except rb_export.ScopeError as e:
+        print(e, file=sys.stderr)
+        return 1
     print(f"  ホットキュー {len(rb)} 件")
 
     print("Notion 📍Cues を読み込み中…")

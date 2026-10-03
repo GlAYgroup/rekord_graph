@@ -95,8 +95,11 @@ python3 -m venv .venv
 ```
 
 初回は全曲・全キューが「追加」として出る。`a` で全部通してよい。
-ライブラリの一部だけ扱いたいときは `config.json` の `rekordbox.folderFilter`（ファイルパスに含まれる文字列）と
-`rekordbox.priorityPlaylist`（このプレイリストの曲は必ず含める）を設定する。
+ライブラリの一部だけ扱いたいときは `config.json` の `rekordbox.scopePlaylists`（このプレイリスト/フォルダ配下の曲だけ。
+フォルダは中を全部たどる。`フォルダ/プレイリスト` とも書ける）を設定する。名前が見つからなければ sync は止まる。
+プレイリストから外した曲は「消えた曲」とは区別され、Notion から消えない。
+古い絞り込み `rekordbox.folderFilter`（ファイルパスに含まれる文字列）と
+`rekordbox.priorityPlaylist`（このプレイリストの曲は必ず含める）も使える（`scopePlaylists` があれば `folderFilter` は使わない）。
 
 ### 5. アプリを動かす
 
@@ -159,8 +162,7 @@ rekordbox の起動中はスキップする。戻し方はスクリプト冒頭�
     }
   },
   "rekordbox": {
-    "folderFilter": "DJ_songs",
-    "priorityPlaylist": "メイン"
+    "scopePlaylists": ["vocalo", "Anime", "classic"]
   }
 }
 ```
@@ -171,6 +173,7 @@ rekordbox の起動中はスキップする。戻し方はスクリプト冒頭�
 | `NOTION_DB_TRACKS` / `NOTION_DB_CUES` / `NOTION_DB_TRANSITIONS` / `NOTION_DB_LAYOUTS` | 各 DB の database ID |
 | `NOTION_DB_PLAYLISTS` | 🎶Playlists の database ID（任意。無ければプレイリストの画面だけが「未設定」） |
 | `REKORDBOX_DIR` | master.db の場所（既定: macOS `~/Library/Pioneer/rekordbox`、Windows `%APPDATA%\Pioneer\rekordbox`） |
+| `REKORDBOX_SCOPE_PLAYLISTS` | `rekordbox.scopePlaylists` と同じ（カンマ区切り） |
 | `REKORDBOX_FOLDER_FILTER` / `REKORDBOX_PRIORITY_PLAYLIST` | `rekordbox.*` と同じ |
 | `REKORD_GRAPH_CONFIG_DIR` | 設定ディレクトリを変える（既定: `~/.config/rekord_graph`） |
 

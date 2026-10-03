@@ -10,6 +10,7 @@
        NOTION_DB_TRACKS / NOTION_DB_CUES / NOTION_DB_TRANSITIONS / NOTION_DB_LAYOUTS
        NOTION_DB_PLAYLISTS（任意。🎶Playlists を使うときだけ）
        REKORDBOX_FOLDER_FILTER / REKORDBOX_PRIORITY_PLAYLIST
+       REKORDBOX_SCOPE_PLAYLISTS（カンマ区切り）
   2. ~/.config/rekord_graph/config.json
        {
          "notion": {
@@ -18,6 +19,8 @@
                          "playlists": "..."}         # playlists は任意
          },
          "rekordbox": {
+           "scopePlaylists": ["vocalo", "Anime"],   # 省略可。このプレイリスト/フォルダ配下の曲だけ扱う
+                                                    # （`フォルダ/プレイリスト` とも書ける。指定すると folderFilter は使わない）
            "folderFilter": "DJ_songs",              # 省略可。このパス片を含む曲だけ扱う
            "priorityPlaylist": "メイン"              # 省略可。このプレイリストの曲は必ず含める
          }
@@ -91,9 +94,11 @@ def notion_databases(require: bool = True) -> dict[str, str]:
     return out
 
 
-def rekordbox_options() -> dict[str, str | None]:
+def rekordbox_options() -> dict:
     rb = _file().get("rekordbox") or {}
+    env_scope = [x.strip() for x in os.environ.get("REKORDBOX_SCOPE_PLAYLISTS", "").split(",") if x.strip()]
     return {
+        "scopePlaylists": env_scope or rb.get("scopePlaylists") or None,
         "folderFilter": os.environ.get("REKORDBOX_FOLDER_FILTER") or rb.get("folderFilter") or None,
         "priorityPlaylist": os.environ.get("REKORDBOX_PRIORITY_PLAYLIST") or rb.get("priorityPlaylist") or None,
     }

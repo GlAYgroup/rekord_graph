@@ -196,11 +196,10 @@ def title_problems(title: str) -> list[str]:
 def audit(entries: list[dict]) -> None:
     """同期対象の曲のうち、形式・アーティスト・原曲の分類が揃っていないものを並べる（読むだけ）。
     新しく取り込んだ曲は旧ファイル名のまま入ってくるので、取り込みのたびにこれで拾う"""
-    import config
     import rb_export
 
     queued = {str(e["id"]): e.get("status", "ok") for e in entries}
-    tracks = rb_export.export(config.rekordbox_options()["folderFilter"])["tracks"]
+    tracks = rb_export.export_configured()["tracks"]
     rows = []
     for t in tracks:
         why = title_problems(t["title"])

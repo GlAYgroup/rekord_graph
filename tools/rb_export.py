@@ -75,8 +75,67 @@ def cue_letter(kind: int | None) -> str | None:
 PRIORITY_PLAYLIST = config.rekordbox_options()["priorityPlaylist"]
 
 
-def export(only: str | None = None) -> dict:
-    """rekordbox のライブラリを読む。`only` = このパス片を含む曲だけ（None なら全曲）。"""
+class ScopeError(ValueError):
+    """rekordbox.scopePlaylists に書いたプレイリスト/フォルダが rekordbox に無い。"""
+
+
+def scope_track_ids(playlists: list, contents_of, scope: list[str]) -> set[str]:
+    """scope の各名前（`フォルダ/プレイリスト` のように / で区切れる）の配下にある曲ID。
+
+    フォルダなら中を全部たどる。名前が1つでも見つからなければ止める —
+    黙って空振りすると、その配下の曲が全部「消えた曲」に見える
+    （priorityPlaylist の「ボカロ_整理済」は名前が変わって何にも当たらないまま動いていた。2026-10-03）
+    """
+    children: dict[str, list] = defaultdict(list)
+    for pl in playlists:
+        children[str(pl.ParentID)].append(pl)
+
+    def find(path: str):
+        parent, node = "root", None
+        for part in path.split("/"):
+            node = next((c for c in children[parent] if c.Name == part), None)
+            if node is None:
+                return None
+            parent = str(node.ID)
+        return node
+
+    ids: set[str] = set()
+
+    def walk(node) -> None:
+        if node.is_folder:
+            for c in children[str(node.ID)]:
+                walk(c)
+        else:
+            ids.update(str(t.ID) for t in contents_of(node))
+
+    missing = []
+    for name in scope:
+        node = find(name)
+        if node is None:
+            missing.append(name)
+        else:
+            walk(node)
+    if missing:
+        roots = ", ".join(c.Name for c in children["root"])
+        raise ScopeError(f"rekordbox.scopePlaylists のプレイリスト/フォルダが見つかりません: {missing}\n"
+                         f"  一番上にあるもの: {roots}")
+    return ids
+
+
+def export_configured() -> dict:
+    """config.json の rekordbox.* の絞り込みどおりに読む（sync・rb_tags の入口）。"""
+    opts = config.rekordbox_options()
+    return export(opts["folderFilter"], opts["scopePlaylists"])
+
+
+def export(only: str | None = None, scope: list[str] | None = None) -> dict:
+    """rekordbox のライブラリを読む。
+
+    `scope` = このプレイリスト/フォルダ配下の曲だけ（指定すると `only` は使わない）。
+    `only` = このパス片を含む曲だけ。どちらも None なら全曲。
+    返す `outOfScope` は「ライブラリにはあるが絞り込みで外した曲ID」。sync はこれを
+    「消えた曲」と区別し、Notion から消さない（プレイリストから外しただけで繋ぎが見えなくなるため）。
+    """
     from pyrekordbox import Rekordbox6Database
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -96,6 +155,10 @@ def export(only: str | None = None) -> dict:
                 continue
             for t in db.get_playlist_contents(pl):
                 playlists_by_track[str(t.ID)].append(pl.Name)
+        if PRIORITY_PLAYLIST and not any(PRIORITY_PLAYLIST in names for names in playlists_by_track.values()):
+            print(f"  ⚠ rekordbox.priorityPlaylist「{PRIORITY_PLAYLIST}」に当たる曲がありません"
+                  "（名前が変わったか、空のプレイリスト）", file=sys.stderr)
+        in_scope = scope_track_ids(db.get_playlist().all(), db.get_playlist_contents, scope) if scope else None
 
         # My Tag = 「カテゴリ/タグ」（`原曲/アニメ`）。ジャンル欄は1つしか入らないので、
         # 原曲の分類はこちらに置いている（tools/rb_mytag.py）
@@ -108,11 +171,17 @@ def export(only: str | None = None) -> dict:
                 tags_by_track[str(s.ContentID)].append(f"{parent.Name}/{m.Name}")
 
         tracks = []
+        out_of_scope = []
         for t in db.get_content():
             path = t.FolderPath or ""
             # 優先プレイリストの曲は、パスがどこにあっても必ず含める
             in_priority = bool(PRIORITY_PLAYLIST) and PRIORITY_PLAYLIST in playlists_by_track.get(str(t.ID), [])
-            if only and only not in path and not in_priority:
+            if in_scope is not None:
+                keep = str(t.ID) in in_scope or in_priority
+            else:
+                keep = not only or only in path or in_priority
+            if not keep:
+                out_of_scope.append(str(t.ID))
                 continue
 
             cues = []
@@ -152,13 +221,17 @@ def export(only: str | None = None) -> dict:
 
     # 優先プレイリストの曲を先頭に
     tracks.sort(key=lambda x: (not x["priority"], x["title"]))
-    return {"tracks": tracks}
+    return {"tracks": tracks, "outOfScope": out_of_scope}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--only", default=config.rekordbox_options()["folderFilter"] or "",
+    opts = config.rekordbox_options()
+    ap.add_argument("--only", default=opts["folderFilter"] or "",
                     help="このパス片を含む曲だけ出力（既定: config.json の rekordbox.folderFilter。空文字で全曲）")
+    ap.add_argument("--scope", default=",".join(opts["scopePlaylists"] or []),
+                    help="このプレイリスト/フォルダ配下の曲だけ出力（カンマ区切り。既定: rekordbox.scopePlaylists。"
+                         "指定すると --only は使わない）")
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args()
 
@@ -166,7 +239,12 @@ def main() -> int:
         print(f"master.db が見つかりません: {RB_DIR}（環境変数 REKORDBOX_DIR で場所を指定できます）", file=sys.stderr)
         return 1
 
-    data = export(args.only or None)
+    scope = [x.strip() for x in args.scope.split(",") if x.strip()] or None
+    try:
+        data = export(args.only or None, scope)
+    except ScopeError as e:
+        print(e, file=sys.stderr)
+        return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
 
