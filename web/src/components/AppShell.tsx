@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import {
@@ -72,6 +72,22 @@ const TABS = [
   },
 ] as const;
 
+/**
+ * タブのアイコン。**押してから次の画面が出るまでは、アイコンをくるくる回る輪に差し替える。**
+ * 本番では画面の切り替えに数秒かかることがあり、押せていないのか待っているのかが分からなかった。
+ * 大きさはアイコンと同じ（差し替えても文字や隣のタブが動かない）
+ */
+function TabIcon({ icon }: { icon: ReactNode }) {
+  const { pending } = useLinkStatus();
+  if (!pending) return <>{icon}</>;
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="size-5 animate-spin" role="status" aria-label="読み込み中">
+      <circle cx="12" cy="12" r="8.2" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+      <path d="M12 3.8a8.2 8.2 0 0 1 8.2 8.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <PerformanceProvider>
@@ -114,7 +130,7 @@ function Shell({ children }: { children: ReactNode }) {
                     active ? "text-accent" : "text-fg-subtle hover:text-fg-muted hover:bg-surface"
                   }`}
                 >
-                  {t.icon}
+                  <TabIcon icon={t.icon} />
                   <span className="text-[10px] tracking-wide">{t.label}</span>
                 </Link>
               </li>
@@ -151,7 +167,7 @@ function Shell({ children }: { children: ReactNode }) {
                     active ? "text-accent" : "text-fg-subtle"
                   }`}
                 >
-                  {t.icon}
+                  <TabIcon icon={t.icon} />
                   <span className="text-[10px] tracking-wide">{t.label}</span>
                 </Link>
               </li>

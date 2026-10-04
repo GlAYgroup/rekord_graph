@@ -159,6 +159,11 @@ rekordbox とは無関係なので sync とは競合しない。人が手で編�
 
 - **見た目の正本は `web/DESIGN.md`、値の正本は `web/src/app/globals.css` のトークン。**
   画面側で色・余白をハードコードしない
+- **Notion の読み取りは DB ごとに「読んで整えた結果」を1件でキャッシュする**（`lib/graph.ts` の `cachedDb`。
+  形を変えたら `SHAPE` を上げる）。ページ（100行）ごとのキャッシュだと画面を開くたびに約40回順番に読み、
+  本番で約1秒かかっていた（2026-10-04）。関数は東京（`web/vercel.json` の `hnd1`）で動かす —
+  アメリカ東部（既定）だと画面を移るたびに太平洋を往復していた。タブを押してから次の画面が出るまでは
+  アイコンが回り（`AppShell` の `TabIcon`）、中身は `app/loading.tsx` が出す
 - **Notion アクセスは `src/lib/notion.ts` だけ。** `NOTION_TOKEN` をクライアントに出さない
   （`NEXT_PUBLIC_` を付けない）
 - **クライアントから `src/lib/graph.ts` を import しない**（`server-only` を抱えている）。

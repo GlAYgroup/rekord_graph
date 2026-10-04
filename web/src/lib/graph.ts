@@ -1,6 +1,7 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { cache } from "react";
-import { DB, num, queryAll, relIds, selectName, text } from "./notion";
+import { DB, dbTag, NOTION_TAG, num, queryAll, relIds, REVALIDATE_SECONDS, selectName, text, type NotionPage } from "./notion";
 import { songIdOf } from "./song";
 
 /**
@@ -128,13 +129,56 @@ function disambiguate<T extends { name: string; fullTitle: string; alias: string
   }
 }
 
-async function build(): Promise<Graph> {
-  const [trackPages, cuePages, transitionPages] = await Promise.all([
-    queryAll(DB.tracks),
-    queryAll(DB.cues),
-    queryAll(DB.transitions),
-  ]);
+/**
+ * 読み取りキャッシュの形の版。下の `parse*` が返す形を変えたら上げる
+ * （キャッシュはデプロイをまたいで残るので、上げないと新しいコードが古い形を受け取る）
+ */
+const SHAPE = "v1";
 
+/**
+ * DB 1つを「読んで整えた結果」ごと1件でキャッシュする。
+ *
+ * 以前は Notion の生の応答を**ページ（100行）ごとに**キャッシュしていたので、画面を開くたびに
+ * 📍Cues だけで32回、全体で約40回キャッシュを順番に読んでいた（Notion の続きのページは前のページの
+ * カーソルが要るので並べられない）。本番では1回ごとにキャッシュまでの往復が乗り、
+ * 中身の計算は手元で 0.05〜0.08 秒なのに、どの画面も約0.8〜1秒かかっていた（実測 2026-10-04）。
+ * いまは DB ごとに1件 = 3件を並べて読む。
+ *
+ * 中の読み込みは `fresh`（Notion を直接読む）。キャッシュを二重に持つと、外側を作り直したときに
+ * 内側の古いページを掴み、反映が最大で倍（10分）遅れるため。期限と捨て方（`dbTag`）は今まで通り:
+ * アプリが繋ぎを書いたら 🔀Transitions の分だけ捨て、🎵Tracks・📍Cues は5分で拾う
+ */
+const reading = new Map<string, Promise<NotionPage[]>>();
+/**
+ * キャッシュが空のときに画面が一斉に来ても、Notion を読むのは1本にまとめる
+ * （`fresh` の読み込みは notion.ts のまとめ役を通らない。並ぶと Notion の上限に当たる）
+ */
+function readOnce(dbId: string): Promise<NotionPage[]> {
+  const running = reading.get(dbId);
+  if (running) return running;
+  const p = queryAll(dbId, true).finally(() => reading.delete(dbId));
+  reading.set(dbId, p);
+  return p;
+}
+
+function cachedDb<T>(name: string, dbId: string, parse: (pages: NotionPage[]) => T): Promise<T> {
+  return unstable_cache(
+    async () => parse(await readOnce(dbId)),
+    ["graph", name, SHAPE, dbId],
+    { revalidate: REVALIDATE_SECONDS, tags: [NOTION_TAG, dbTag(dbId)] },
+  )();
+}
+
+async function build(): Promise<Graph> {
+  const [tracks, cues, transitions] = await Promise.all([
+    cachedDb("tracks", DB.tracks, parseTracks),
+    cachedDb("cues", DB.cues, parseCues),
+    cachedDb("transitions", DB.transitions, parseTransitions),
+  ]);
+  return assemble(tracks, cues, transitions);
+}
+
+function parseTracks(trackPages: NotionPage[]): Track[] {
   const tracks: Track[] = trackPages.map((p) => {
     const title = text(p.properties["曲名"]);
     const alias = text(p.properties["別名"]);
@@ -157,8 +201,11 @@ async function build(): Promise<Graph> {
   });
   disambiguate(tracks);
   tracks.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  return tracks;
+}
 
-  const cues: Cue[] = cuePages.map((p) => ({
+function parseCues(cuePages: NotionPage[]): Cue[] {
+  return cuePages.map((p) => ({
     id: p.id,
     trackId: relIds(p.properties["曲"])[0] ?? "",
     letter: selectName(p.properties["記号"]),
@@ -169,8 +216,10 @@ async function build(): Promise<Graph> {
     loop: p.properties["ループ"]?.checkbox ?? false,
     loopEndMs: num(p.properties["ループ終ms"]),
   }));
+}
 
-  const transitions: Transition[] = transitionPages
+function parseTransitions(transitionPages: NotionPage[]): Transition[] {
+  return transitionPages
     .map((p) => ({
       id: p.id,
       fromTrackId: relIds(p.properties["From曲"])[0] ?? "",
@@ -197,7 +246,10 @@ async function build(): Promise<Graph> {
     // 曲が両方埋まっていない行は、書きかけとみなして地図に載せない。
     // キューは空でよい（曲とメモだけで残した繋ぎ。表示は `cueOf` が「キュー未定」にする）
     .filter((t) => t.fromTrackId && t.toTrackId);
+}
 
+/** 整えた3つを、たどれる形（引き口の Map）に組む。Map はキャッシュに入らないので毎回ここで作る */
+function assemble(tracks: Track[], cues: Cue[], transitions: Transition[]): Graph {
   const cuesByTrack = new Map<string, Cue[]>();
   for (const c of cues) {
     if (!c.trackId) continue;
