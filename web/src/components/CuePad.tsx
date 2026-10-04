@@ -62,10 +62,10 @@ export function LoopTag({ cue }: { cue: Cue | null | undefined }) {
 /** パッド＋キュー名＋位置。1行で読める塊。 */
 export function CueLine({ cue, size = "md" }: { cue: Cue | null | undefined; size?: "md" | "sm" }) {
   return (
-    <div className="flex items-center gap-3 min-w-0">
+    <div className={`flex items-center min-w-0 ${size === "sm" ? "gap-2" : "gap-3"}`}>
       <CuePad cue={cue} size={size} />
       <span className="min-w-0">
-        <span className="flex flex-wrap items-center gap-1.5 text-[17px] leading-snug">
+        <span className={`flex flex-wrap items-center gap-1.5 leading-snug ${size === "sm" ? "text-[15.5px]" : "text-[17px]"}`}>
           {/* キュー名は**刈らない**。長ければ折り返す（プレイ中に読む情報なので） */}
           <span className="min-w-0 break-words">
             {cue === null
@@ -75,7 +75,7 @@ export function CueLine({ cue, size = "md" }: { cue: Cue | null | undefined; siz
           <LoopTag cue={cue} />
         </span>
         {cue !== null && (
-          <span className="block font-mono text-[12px] text-fg-subtle tabular-nums">
+          <span className={`block font-mono text-fg-subtle tabular-nums ${size === "sm" ? "text-[11px]" : "text-[12px]"}`}>
             {formatPosition(cue?.positionMs ?? null)}
           </span>
         )}

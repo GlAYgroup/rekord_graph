@@ -115,14 +115,16 @@ export function SetPlanner({
         <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">セットを組む</h1>
         <Link
           href="/play"
-          className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+          className="btn"
         >
           ← プレイ
         </Link>
       </div>
-      <p className="mt-1 text-[13px] text-fg-muted">
-        入れたい曲を選ぶと、それをなるべく多く通る道筋を出します。間に他の曲を挟むことがあります。
-        道筋は選んだ曲で始まり、選んだ曲で終わります。選んだ曲の数が同じなら、長くつなげる方を出します。
+      <p
+        className="mt-1 text-[13px] text-fg-muted"
+        title="道筋は選んだ曲で始まり、選んだ曲で終わります。通る数が同じなら、長くつなげる方を出します"
+      >
+        選んだ曲をなるべく多く通る道筋を、間に他の曲も挟んで出します。
       </p>
       {filtering && (
         <p className="mt-2 text-[12.5px] text-warn">
@@ -174,7 +176,7 @@ export function SetPlanner({
             <Link
               href={`/play?from=${encodeURIComponent(plan.trackIds[0])}`}
               onClick={start}
-              className="tap mt-3 flex items-center justify-center rounded-card border border-hot/50 bg-hot/12 text-[14px] font-semibold text-hot"
+              className="btn btn-hot mt-3 w-full rounded-card text-[14px]"
             >
               この順で /play を始める →
             </Link>
@@ -197,7 +199,7 @@ export function SetPlanner({
         {wanted.length > 0 && (
           <button
             onClick={() => setWanted(() => [])}
-            className="tap rounded-full border border-border bg-surface px-3 text-[12px] text-fg-subtle hover:text-fg"
+            className="btn text-[12px]"
           >
             全部外す
           </button>
@@ -210,7 +212,7 @@ export function SetPlanner({
               key={id}
               onClick={() => toggle(id)}
               title="押すと外す"
-              className="tap rounded-card border border-accent/50 bg-accent/10 px-2.5 py-1 text-left text-[13px] text-accent"
+              className="btn btn-accent justify-start rounded-card px-2.5 py-1 text-left text-[13px]"
             >
               {trackById.get(id)?.name ?? "不明な曲"} ×
             </button>

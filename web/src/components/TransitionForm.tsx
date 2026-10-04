@@ -335,7 +335,7 @@ export function TransitionForm({
         <button
           type="button"
           onClick={togglePerformance}
-          className="tap mt-5 h-12 rounded-card border border-hot/60 bg-hot/15 px-6 text-[15px] font-semibold text-hot"
+          className="btn btn-hot mt-5 h-12 rounded-card px-6 text-[15px]"
         >
           解除して入力する
         </button>
@@ -377,16 +377,14 @@ export function TransitionForm({
             onClick={() => startNew()}
             // 保存の返事を待っている間に切り替えると、どの行を編集しているのかが宙に浮く
             disabled={busy}
-            className="tap shrink-0 rounded-full border border-border px-4 text-[12px] text-fg-subtle hover:text-fg disabled:opacity-40"
+            className="btn px-4 text-[12px]"
           >
             編集をやめる
           </button>
         )}
       </div>
       <p className="mt-1 text-[13px] text-fg-muted">
-        {editingId
-          ? "曲もキューも選び直せます。保存すると同じ行を書き換えます。"
-          : "曲を選ぶと、その曲のホットキューだけが並びます。キューは決めずに、曲とメモだけでも保存できます。"}
+        {editingId ? "保存すると、この行を書き換えます。" : "キューは決めずに、曲とメモだけでも保存できます。"}
       </p>
 
       <Side
@@ -533,11 +531,7 @@ export function TransitionForm({
               onClick={() => setPractice((v) => !v)}
               aria-pressed={practice}
               title="次の練習で拾う繋ぎに付ける（/practice に一覧が出る）"
-              className={`tap inline-flex items-center rounded-full border px-4 text-[13px] transition-colors ${
-                practice
-                  ? "border-warn/60 bg-warn/12 text-warn"
-                  : "border-border bg-surface-2 text-fg-muted hover:text-fg"
-              }`}
+              className={`btn px-4 text-[13px] ${practice ? "btn-warn" : "bg-surface-2"}`}
             >
               {practice ? "⚑ 要練習" : "要練習"}
             </button>
@@ -593,7 +587,7 @@ export function TransitionForm({
             type="button"
             onClick={() => remove(editingRow)}
             disabled={removing === editingRow.id || busy}
-            className="tap h-12 rounded-card border border-border px-6 text-[15px] text-fg-subtle transition-colors hover:border-warn/60 hover:text-warn disabled:opacity-35"
+            className="btn h-12 rounded-card px-6 text-[15px] hover:border-warn/60 hover:text-warn"
           >
             {removing === editingRow.id ? "削除中…" : "この繋ぎを削除"}
           </button>
@@ -603,7 +597,7 @@ export function TransitionForm({
           onClick={save}
           // 保存した直後で何も触っていない間は押せない（同じ中身を書き直すだけになる）
           disabled={!ready || busy || saved}
-          className="tap h-12 rounded-card border border-hot/60 bg-hot/15 px-8 text-[15px] font-semibold text-hot transition-colors disabled:opacity-35"
+          className="btn btn-hot h-12 rounded-card px-8 text-[15px]"
         >
           {busy ? "保存中…" : !ready ? "From と To を選んでください" : editingId ? "この繋ぎを更新" : "この繋ぎを保存"}
         </button>
@@ -622,7 +616,7 @@ export function TransitionForm({
             <button
               type="button"
               onClick={() => startNew()}
-              className="tap min-w-[190px] flex-1 rounded-card border border-hot/60 bg-hot/15 px-4 text-[14px] font-semibold text-hot"
+              className="btn btn-hot min-w-[190px] flex-1 rounded-card px-4 text-[14px]"
             >
               ＋ 新しい繋ぎを入力する
             </button>
@@ -631,7 +625,7 @@ export function TransitionForm({
                 type="button"
                 onClick={() => startNew(toTrack)}
                 title={`From を「${toTrack.name}」にして次の繋ぎを入れる`}
-                className="tap min-w-[190px] flex-1 rounded-card border border-border bg-surface-2 px-4 text-[14px] text-fg-muted hover:text-fg"
+                className="btn min-w-[190px] flex-1 rounded-card bg-surface-2 px-4 text-[14px]"
               >
                 To の曲から続けて入力する
               </button>
@@ -655,11 +649,7 @@ export function TransitionForm({
               setKeptIds(new Set());
             }}
             aria-pressed={bulk}
-            className={`tap shrink-0 rounded-full border px-3 text-[12px] transition-colors ${
-              bulk
-                ? "border-accent/60 bg-accent/12 text-accent"
-                : "border-border text-fg-muted hover:border-border-bright hover:text-fg"
-            }`}
+            className={`btn px-3 text-[12px] ${bulk ? "btn-accent" : ""}`}
           >
             {bulk ? "一括編集を終える" : "一括編集"}
           </button>
@@ -676,11 +666,7 @@ export function TransitionForm({
             type="button"
             onClick={() => setFilterOpen((v) => !v)}
             aria-expanded={filterOpen}
-            className={`tap rounded-full border px-3 text-[12px] ${
-              listFiltering
-                ? "border-accent/60 bg-accent/12 text-accent"
-                : "border-border text-fg-subtle hover:text-fg"
-            }`}
+            className={`btn px-3 text-[12px] ${listFiltering ? "btn-accent" : ""}`}
           >
             {listFiltering ? `絞り込み: ${listFilterSummary(listFilter)}` : "絞り込み"}
           </button>
@@ -740,11 +726,7 @@ export function TransitionForm({
               <button
                 type="button"
                 onClick={() => startEdit(r)}
-                className={`tap shrink-0 rounded-full border px-3 text-[12px] transition-colors ${
-                  editingId === r.id
-                    ? "border-accent/60 bg-accent/12 text-accent"
-                    : "border-border text-fg-muted hover:border-border-bright hover:text-fg"
-                }`}
+                className={`btn px-3 text-[12px] ${editingId === r.id ? "btn-accent" : ""}`}
               >
                 編集
               </button>
@@ -752,7 +734,7 @@ export function TransitionForm({
                 type="button"
                 onClick={() => remove(r)}
                 disabled={removing === r.id}
-                className="tap shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-warn/60 hover:text-warn disabled:opacity-40"
+                className="btn px-3 text-[12px] hover:border-warn/60 hover:text-warn"
               >
                 {removing === r.id ? "…" : "削除"}
               </button>
@@ -839,9 +821,7 @@ function RowDetails({ row, bulk }: { row: ListedTransition; bulk: boolean }) {
 }
 
 const chipClass = (on: boolean) =>
-  `tap rounded-full border px-4 text-[13px] transition-colors ${
-    on ? "border-accent/60 bg-accent/12 text-accent" : "border-border bg-surface-2 text-fg-muted hover:text-fg"
-  }`;
+  `btn px-4 text-[13px] ${on ? "btn-accent" : "bg-surface-2"}`;
 
 /** FROM / TO の片側。曲を選ぶ → その曲のキューだけがパッドで並ぶ */
 function Side({
@@ -878,7 +858,7 @@ function Side({
           <button
             type="button"
             onClick={() => { setQ(""); onClear(); }}
-            className="tap shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle hover:text-fg"
+            className="btn px-3 text-[12px]"
           >
             変更
           </button>

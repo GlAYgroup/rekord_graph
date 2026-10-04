@@ -11,12 +11,14 @@ import type { Cue } from "@/lib/types";
  * 実データだけ = 曲の長さ・キューの位置・1分ごとの目盛り。
  */
 export function TrackTimeline({
-  durationSec, cues, highlightCueId, mode,
+  durationSec, cues, highlightCueId, mode, size = "md",
 }: {
   durationSec: number | null;
   cues: Cue[];
   highlightCueId: string;
   mode: "exit" | "enter";
+  /** sm = /play のカード用の細い帯（From と To を横に並べるので、高さも詰める） */
+  size?: "md" | "sm";
 }) {
   const highlighted = cues.find((c) => c.id === highlightCueId);
   // 長さが取れない曲は、最後のキュー位置を暫定の終端にする
@@ -31,7 +33,7 @@ export function TrackTimeline({
   );
 
   return (
-    <div className="relative h-7 w-full rounded-md bg-bg-deep border border-border overflow-hidden">
+    <div className={`relative w-full ${size === "sm" ? "h-4" : "h-7"} rounded-md bg-bg-deep border border-border overflow-hidden`}>
       {/* 再生する側の範囲。exit=ここまで流してきた / enter=ここから流していく。
           キューを決めていない繋ぎ（highlightCueId が空）では、どこからか分からないので塗らない */}
       {highlighted && <div
@@ -47,7 +49,7 @@ export function TrackTimeline({
         c.id === highlightCueId ? null : (
           <span
             key={c.id}
-            className="absolute top-1.5 bottom-1.5 w-px bg-hot/35"
+            className={`absolute w-px bg-hot/35 ${size === "sm" ? "inset-y-1" : "top-1.5 bottom-1.5"}`}
             style={{ left: `${at(c.positionMs)}%` }}
             title={cueLabel(c)}
           />

@@ -67,7 +67,7 @@ export function CommentEditor({
           type="button"
           onClick={save}
           disabled={busy || unchanged}
-          className="tap flex-1 rounded-card border border-hot/60 bg-hot/15 px-4 text-[14px] font-semibold text-hot transition-colors disabled:opacity-35"
+          className="btn btn-hot flex-1 rounded-card px-4 text-[14px]"
         >
           {busy ? "保存中…" : "コメントを保存"}
         </button>
@@ -75,7 +75,7 @@ export function CommentEditor({
           type="button"
           onClick={onClose}
           disabled={busy}
-          className="tap flex-1 rounded-card border border-border bg-surface px-4 text-[14px] text-fg-muted hover:text-fg disabled:opacity-40"
+          className="btn flex-1 rounded-card px-4 text-[14px]"
         >
           やめる
         </button>

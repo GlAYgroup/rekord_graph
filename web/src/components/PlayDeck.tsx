@@ -7,21 +7,24 @@ import { CommentEditor } from "./CommentEditor";
 import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
 import { FilterPanel } from "./FilterPanel";
+import { TargetPanel } from "./TargetPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
 import { HopDetails } from "./HopDetails";
 import { RouteSteps } from "./RouteSteps";
 import { SaveAsPlaylist } from "./SaveAsPlaylist";
-import { canFollow, minutesLabel, setLength, timingOf, type SetLength } from "@/lib/duration";
+import { canFollow, minutesLabel, setLength, timingOf } from "@/lib/duration";
 import { bpmDelta } from "@/lib/format";
 import {
-  archive, NO_FILTER, readCurrent, readFilter, readPlan, writeCurrent, writeFilter, writePlan,
+  archive, NO_FILTER, readCurrent, readFilter, readPlan, readTarget, writeCurrent, writeFilter, writePlan,
+  writeTarget,
   type PlayFilter, type PlayStep,
 } from "@/lib/playlog";
 import {
   filterChoices, filterSummary, isFiltering, passesFilter, skipsTrack as skipsTrackBy,
 } from "@/lib/playFilter";
 import { maxOnwardFrom } from "@/lib/route";
+import { fitRoute, hasTarget, NO_TARGET, targetLabel, type SetTarget } from "@/lib/setTarget";
 import type { Cue, Track, Transition } from "@/lib/types";
 
 /**
@@ -68,7 +71,7 @@ const markStale = () => {
 };
 
 export function PlayDeck({
-  tracks, cues, transitions, maxFrom, maxLength, maxRoute, initialTrackId,
+  tracks, cues, transitions, maxFrom, maxRoute, initialTrackId,
 }: {
   tracks: Track[];
   cues: Cue[];
@@ -78,8 +81,6 @@ export function PlayDeck({
    * 繋ぎのカードに出す数は、かけた曲を外して端末で数え直す
    */
   maxFrom: Record<string, number>;
-  /** `maxFrom` と同じ道筋で、何分のセットになるか（全長とカット後）。曲を選ぶ一覧に出す */
-  maxLength: Record<string, SetLength>;
   /** その数を出した道筋（繋ぎID）。曲を選ぶ一覧で「最大◯曲」を開くと読める */
   maxRoute: Record<string, string[]>;
   initialTrackId: string | null;
@@ -111,6 +112,8 @@ export function PlayDeck({
   /** 除外条件。端末に残したものを mount 後に読む */
   const [filter, setFilter] = useState<PlayFilter>(NO_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
+  /** 長さ指定（何曲・何分のセットにしたいか）。端末に残したものを mount 後に読む */
+  const [target, setTarget] = useState<SetTarget>(NO_TARGET);
   /**
    * 「セットを組む」（`/play/plan`）で「この順で始める」を押したときの道筋（繋ぎ ID）。
    * その繋ぎのカードに「予定」の印を付けるだけで、**並びは変えない**（並びは「この先◯曲」順の約束）
@@ -190,6 +193,7 @@ export function PlayDeck({
     initRef.current = true;
     setRestored(true);
     setFilter(readFilter());
+    setTarget(readTarget());
     setPlanned(new Set(readPlan().route));
     /*
       「この曲から始める」は、**アドレスにまだ `?from=` が残っているとき**だけ。
@@ -217,6 +221,9 @@ export function PlayDeck({
   useEffect(() => {
     if (restored) writeFilter(filter);
   }, [filter, restored]);
+  useEffect(() => {
+    if (restored) writeTarget(target);
+  }, [target, restored]);
 
   /**
    * 除外条件を通る繋ぎか。**未入力は通す**（難易度・星は後から付けていくもので、
@@ -353,6 +360,21 @@ export function PlayDeck({
   // かけてきた順は右端（最新）を見せる。横スクロールの箱は左端から始まるので、
   // スマホでは2〜3曲で最新側と「→ 今」が画面の外に切れていた
   const crumbsRef = useRef<HTMLElement>(null);
+  /**
+   * 下へ送ったら、上に貼り付けた「今かけている曲」を1行に畳む（かけてきた順と数の行を隠す）。
+   * 画面の2割を取ったままだと、本番中に次の候補が1枚半しか見えなかった。
+   * 畳む・開くの境目を分けておく（同じ値だと、畳んで縮んだぶん境目をまたいで行ったり来たりする）
+   */
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY;
+      setCompact((c) => (c ? y > 24 : y > 96));
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
   useEffect(() => {
     const el = crumbsRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
@@ -361,7 +383,7 @@ export function PlayDeck({
   // 曲が決まっていない（＝最初の1曲）と、途中で別の曲へ移るときは同じ一覧を出す。
   // 違うのは選んだ結果だけ: 前者は「そこから始める」、後者は「後ろに足す」
   /**
-   * 曲を選ぶ一覧の「最大◯曲」「◯分/◯分」を、**除外条件を入れたら数え直す**。
+   * 曲を選ぶ一覧の「最大◯曲」と開く道筋を、**除外条件を入れたら数え直す**。
    * 条件なしのときはサーバで数えた数（全曲ぶん・打ち切り無し）をそのまま使う。
    * 全曲ぶんの探索は重いので、一覧を開いていて条件が入っているときだけ、条件が変わったら1回走らせる
    * （検索欄の1文字ごとには走らせない。依存に検索語を入れない）
@@ -370,29 +392,23 @@ export function PlayDeck({
   const filteredCounts = useMemo(() => {
     if (!pickerOpen || !filtering) return null;
     const max: Record<string, number> = {};
-    const length: Record<string, SetLength> = {};
     const route: Record<string, string[]> = {};
     const truncated = new Set<string>();
     for (const t of tracks) {
       const r = maxOnwardFrom(usable, songOf, t.id, new Set(), timing);
       max[t.id] = r.count;
-      length[t.id] = setLength(r.trackIds, r.edges, lengthLookup);
       if (r.edges.length > 0) route[t.id] = r.edges.map((e) => e.id);
       if (r.truncated) truncated.add(t.id);
     }
-    return { max, length, route, truncated };
-  }, [pickerOpen, filtering, tracks, usable, songOf, lengthLookup, timing]);
+    return { max, route, truncated };
+  }, [pickerOpen, filtering, tracks, usable, songOf, timing]);
 
   /** 除外条件のボタンと設定。プレイ中のヘッダと、曲を選ぶ一覧の両方に置く */
   const filterButton = (
     <button
       onClick={() => setFilterOpen((v) => !v)}
       aria-expanded={filterOpen}
-      className={`tap rounded-full border px-3 text-[12px] ${
-        filtering
-          ? "border-warn/50 bg-warn/10 text-warn"
-          : "border-border text-fg-subtle hover:text-fg"
-      }`}
+      className={`btn px-3 text-[12px] ${filtering ? "btn-warn" : ""}`}
     >
       {filtering ? `除外: ${filterSummary(filter)}` : "除外条件"}
     </button>
@@ -412,7 +428,6 @@ export function PlayDeck({
       <StartPicker
         tracks={tracks}
         maxFrom={filteredCounts?.max ?? maxFrom}
-        maxLength={filteredCounts?.length ?? maxLength}
         maxRoute={filteredCounts?.route ?? maxRoute}
         transitionById={transitionById}
         trackById={trackById}
@@ -424,9 +439,17 @@ export function PlayDeck({
         playedIds={new Set(path)}
         skipsTrack={skipsTrack}
         filtering={filtering}
+        target={target}
+        onTarget={setTarget}
+        lengthLookup={lengthLookup}
         mode={current ? "jump" : "start"}
-        onPick={(id) => {
+        onPick={(id, route) => {
           setPicking(false);
+          // 道筋を開いて「この曲から始める」を押したら、その道筋の繋ぎに「予定」の印を付ける
+          if (route && !current) {
+            writePlan({ ...readPlan(), route });
+            setPlanned(new Set(route));
+          }
           // 記録に無い繋ぎで移ったときは繋ぎ ID を残さない（履歴でもそう出す）
           setSteps((p) =>
             current
@@ -446,20 +469,20 @@ export function PlayDeck({
       : null;
 
   return (
-    <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav sm:px-4">
+    <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav sm:px-4 lg:max-w-6xl">
       {/* ── 今かけている曲。ここが常に基準なので上に貼り付けておく ── */}
-      <header className="sticky top-0 z-20 -mx-3 border-b border-border bg-bg/90 px-3 pb-3 pt-3 backdrop-blur-md sm:-mx-4 sm:px-4">
-        <div className="flex items-start gap-2">
+      <header className={`sticky top-0 z-20 -mx-3 border-b border-border bg-bg/90 px-3 backdrop-blur-md ${compact ? "py-1.5" : "pb-3 pt-3"} sm:-mx-4 sm:px-4`}>
+        <div className={`flex gap-2 ${compact ? "items-center" : "items-start"}`}>
           <div className="min-w-0 flex-1">
-            <span className="label">{performing ? "本番 · 今かけている曲" : "今かけている曲"}</span>
+            {!compact && <span className="label">{performing ? "本番 · 今かけている曲" : "今かけている曲"}</span>}
             {/*
               曲名は刈らずに折り返すので2〜3行になる。角を丸め切る（rounded-full）と、
               丸みが1行目と最後の行の端に掛かって字が欠けて見えた。行き先のチップと同じ角にする
             */}
             <div
-              className="mt-1 inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-card border border-hot/50 bg-hot/12 px-3.5 py-1.5"
+              className={`inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-card border border-hot/50 bg-hot/12 px-3 ${compact ? "py-1" : "mt-1 py-1.5"}`}
             >
-              <span className="min-w-0 break-words text-[17px] font-bold leading-tight text-hot">
+              <span className={`min-w-0 break-words font-bold leading-tight text-hot ${compact ? "text-[15px]" : "text-[17px]"}`}>
                 {current.name}
               </span>
               <span className="shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums text-hot/80">
@@ -471,14 +494,14 @@ export function PlayDeck({
             {path.length > 1 && (
               <button
                 onClick={() => setSteps((p) => p.slice(0, -1))}
-                className="tap rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-muted hover:text-fg"
+                className="btn"
               >
                 戻す
               </button>
             )}
             <button
               onClick={() => { setConfirmReset(false); setConfirmBack(null); setPicking(true); }}
-              className="tap rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+              className="btn"
               title="記録に無い曲へも移れます。かけてきた順はそのまま残ります"
             >
               曲を変える
@@ -487,7 +510,7 @@ export function PlayDeck({
         </div>
 
         {/* かけてきた順。押すと、確かめてからそこまで戻る */}
-        {path.length > 1 && (
+        {path.length > 1 && !compact && (
           <nav ref={crumbsRef} className="mt-2 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[12px] text-fg-subtle">
             {path.slice(0, -1).map((id, i) => (
               <span key={`${id}-${i}`} className="shrink-0">
@@ -523,13 +546,13 @@ export function PlayDeck({
             <div className="mt-2.5 flex gap-2">
               <button
                 onClick={() => { setSteps((s) => s.slice(0, backTarget + 1)); setConfirmBack(null); }}
-                className="tap flex-1 rounded-card border border-warn/60 bg-warn/15 px-4 text-[14px] font-semibold text-warn"
+                className="btn btn-warn flex-1 rounded-card px-4 text-[14px] font-semibold"
               >
                 戻る
               </button>
               <button
                 onClick={() => setConfirmBack(null)}
-                className="tap flex-1 rounded-card border border-border bg-surface px-4 text-[14px] text-fg-muted hover:text-fg"
+                className="btn flex-1 rounded-card px-4 text-[14px]"
               >
                 やめる
               </button>
@@ -537,7 +560,7 @@ export function PlayDeck({
           </div>
         )}
 
-        <p className="mt-1.5 flex flex-wrap items-center gap-x-3 text-[12px] text-fg-subtle">
+        <p className={`mt-1.5 flex-wrap items-center gap-x-3 text-[12px] text-fg-subtle ${compact ? "hidden" : "flex"}`}>
           <span>かけた {path.length}曲</span>
           <span className={remaining > 1 ? "text-hot" : ""}>
             {/* 探索を打ち切ったときの数は下限（カードの「◯曲以上」と同じ断り方） */}
@@ -548,9 +571,13 @@ export function PlayDeck({
               残り{minutesLabel(aheadLength.cutSec)}（全長{minutesLabel(aheadLength.fullSec).replace("約", "")}）
             </span>
           )}
-          {hiddenPlayed > 0 && <span>かけた曲（リミックス違い含む）で隠した繋ぎ {hiddenPlayed}</span>}
-          {hiddenFiltered > 0 && <span className="text-warn">条件で外した繋ぎ {hiddenFiltered}</span>}
-          {hiddenReversed > 0 && <span>入った位置より前から抜けるため隠した繋ぎ {hiddenReversed}</span>}
+          {hiddenPlayed > 0 && (
+            <span title="かけた曲（リミックス違いも含む）へ入る繋ぎは出さない">かけた曲で隠した {hiddenPlayed}</span>
+          )}
+          {hiddenFiltered > 0 && <span className="text-warn">条件で外した {hiddenFiltered}</span>}
+          {hiddenReversed > 0 && (
+            <span title="この曲に入った位置より前のキューから抜ける繋ぎ（時間が逆行する）">逆行で隠した {hiddenReversed}</span>
+          )}
           <span className="ml-auto">{filterButton}</span>
         </p>
       </header>
@@ -575,7 +602,9 @@ export function PlayDeck({
           （移った先も、繋いだ曲として数えます）。
         </p>
       ) : (
-        <ul className="mt-3 space-y-2.5">
+        // PC では2列に並べる（1列だと横幅が余り、候補が縦に長く伸びるだけだった）。
+        // 並びは「この先◯曲」順のまま、左上から右へ読む
+        <ul className="mt-3 grid gap-2.5 lg:grid-cols-2 lg:items-start">
           {rows.map(({ transition: t, to, onward: n, length }) => {
             return (
               // 枠は li が持つ。「要練習」は送るボタンの**外**に出す
@@ -587,7 +616,7 @@ export function PlayDeck({
               >
                 <button
                   onClick={() => setSteps((p) => [...p, { trackId: t.toTrackId, viaTransitionId: t.id }])}
-                  className="flex w-full flex-col gap-2.5 rounded-card p-3 text-left sm:flex-row sm:gap-4 sm:p-4"
+                  className="flex w-full flex-col gap-2 rounded-card p-2.5 text-left sm:flex-row sm:gap-4 sm:p-4"
                 >
                   {/*
                     ── 行き先の曲名チップ。押す対象はカード全体だが、目印はここ ──
@@ -596,7 +625,7 @@ export function PlayDeck({
                     長いものは4行になっていた。sm 以上は今まで通り右の列
                   */}
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:order-last sm:w-[190px] sm:shrink-0 sm:flex-col sm:flex-nowrap sm:items-end">
-                    <span className="min-w-0 basis-full rounded-card border border-accent/45 bg-accent/10 px-2.5 py-1.5 text-left text-[15px] font-semibold leading-snug break-words text-accent sm:w-full sm:basis-auto sm:text-right">
+                    <span className="min-w-0 basis-full rounded-card border border-accent/45 bg-accent/10 px-2.5 py-1 text-left text-[15px] font-semibold leading-snug break-words text-accent sm:w-full sm:basis-auto sm:text-right">
                       {to?.name ?? "不明な曲"}
                     </span>
                     <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
@@ -677,11 +706,7 @@ export function PlayDeck({
                           onClick={() => toggleComment(t.id, !commenting.has(t.id))}
                           aria-expanded={commenting.has(t.id)}
                           title="この繋ぎのコメントを、ここで書き足す・直す"
-                          className={`tap inline-flex shrink-0 items-center rounded-full border px-3 text-[12px] transition-colors ${
-                            commenting.has(t.id)
-                              ? "border-accent/60 bg-accent/12 text-accent"
-                              : "border-border text-fg-subtle hover:border-border-bright hover:text-fg"
-                          }`}
+                          className={`btn px-3 text-[12px] ${commenting.has(t.id) ? "btn-accent" : ""}`}
                         >
                           コメント
                         </button>
@@ -689,7 +714,7 @@ export function PlayDeck({
                           href={`/new?edit=${t.id}`}
                           // 入力画面で直して「戻る」で帰ってきたら、この画面を取り直す（上の STALE）
                           onClick={markStale}
-                          className="tap inline-flex shrink-0 items-center rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+                          className="btn px-3 text-[12px]"
                           title="この繋ぎのキュー・種類・小節数・難易度などを直す"
                         >
                           編集
@@ -734,13 +759,13 @@ export function PlayDeck({
                 // セットを終えたら、組んだ道筋の「予定」も終わり（選んだ曲は残す）
                 writePlan({ ...readPlan(), route: [] }); setPlanned(new Set());
               }}
-              className="tap rounded-full border border-warn/50 bg-warn/10 px-4 text-[12.5px] text-warn"
+              className="btn btn-warn px-4"
             >
               リセットする
             </button>
             <button
               onClick={() => setConfirmReset(false)}
-              className="tap rounded-full border border-border px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+              className="btn"
             >
               やめる
             </button>
@@ -749,15 +774,14 @@ export function PlayDeck({
           <>
             <button
               onClick={() => { setConfirmBack(null); setConfirmReset(true); }}
-              className="tap rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
+              className="btn px-4"
               title="ここまでを履歴に残して、最初の1曲から選び直す"
             >
               リセット
             </button>
             <Link
               href="/play/history"
-              // リンクは button と違って中身を縦に寄せないので、44px の高さの上端に字が貼り付く
-              className="tap inline-flex items-center rounded-full border border-border px-4 text-[12.5px] text-fg-subtle hover:text-fg"
+              className="btn px-4"
             >
               履歴
             </Link>
@@ -776,14 +800,13 @@ export function PlayDeck({
  * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
  */
 function StartPicker({
-  tracks, maxFrom, maxLength, truncated, filterButton, filterPanel,
+  tracks, maxFrom, truncated, filterButton, filterPanel,
   usedSongs, playedIds, skipsTrack, filtering, mode, onPick, onCancel,
-  maxRoute, transitionById, trackById, cueById,
+  maxRoute, transitionById, trackById, cueById, target, onTarget, lengthLookup,
 }: {
   tracks: Track[];
   /** 除外条件が入っていれば、条件を通る繋ぎだけで数え直した数 */
   maxFrom: Record<string, number>;
-  maxLength: Record<string, SetLength>;
   maxRoute: Record<string, string[]>;
   transitionById: ReadonlyMap<string, Transition>;
   trackById: ReadonlyMap<string, Track>;
@@ -805,18 +828,49 @@ function StartPicker({
   /** 除外条件が入っているか（入っていれば右の数は条件つきで数え直したもの） */
   filtering: boolean;
   mode: "start" | "jump";
-  onPick: (id: string) => void;
+  /**
+   * 長さ指定（`lib/setTarget.ts`）。**最初の1曲を選ぶときだけ効く** —
+   * 「曲を変える」（急な差し替え）では全曲から選べないと困るので、枠では絞らない
+   */
+  target: SetTarget;
+  onTarget: (t: SetTarget) => void;
+  lengthLookup: Parameters<typeof fitRoute>[2];
+  /** route = 道筋を開いてから選んだときの、その道筋（繋ぎ ID） */
+  onPick: (id: string, route?: string[]) => void;
   /** 途中で開いたときだけ「やめる」で戻れる（かけてきた順は消さない） */
   onCancel: (() => void) | null;
 }) {
   const [q, setQ] = useState("");
   /** 「最大◯曲」を開いている曲。開くのは1曲ずつ（84曲ぶん開くと一覧が読めなくなる） */
   const [openId, setOpenId] = useState<string | null>(null);
+  const [targetOpen, setTargetOpen] = useState(false);
+  const targeting = mode === "start" && hasTarget(target);
+  /**
+   * 各曲の一番長い道筋を、長さ指定の枠に収まるところで切ったもの。枠が無ければ道筋そのまま。
+   * 枠に収まる切り方が無い曲は null（一覧から外す）
+   */
+  const fitted = useMemo(() => {
+    const m = new Map<string, { edges: Transition[]; songs: number; cutSec: number } | null>();
+    for (const t of tracks) {
+      const edges = (maxRoute[t.id] ?? [])
+        .map((id) => transitionById.get(id))
+        .filter((e): e is Transition => !!e);
+      if (!targeting) { m.set(t.id, { edges, songs: edges.length + 1, cutSec: 0 }); continue; }
+      const r = fitRoute(t.id, edges, lengthLookup, target);
+      m.set(t.id, r && { edges: r.hops, songs: r.trackIds.length, cutSec: r.length.cutSec });
+    }
+    return m;
+  }, [tracks, maxRoute, transitionById, lengthLookup, target, targeting]);
+  /** 開ける道筋があるか（枠で切った結果、1曲だけになったら開くものが無い） */
+  const hasRoute = (id: string) => (fitted.get(id)?.edges.length ?? 0) > 0;
+  /** 枠で外した曲のうち、道筋を持っていた曲の数（繋ぎの無い曲まで数えると、毎回ほぼ全曲になって読めない） */
+  const hiddenByTarget = targeting ? tracks.filter((t) => maxRoute[t.id] && !fitted.get(t.id)).length : 0;
   const shown = useMemo(() => {
     const query = q.trim().toLowerCase();
     const words = query.split(/\s+/).filter(Boolean);
     return tracks
       .filter((t) => {
+        if (targeting && !fitted.get(t.id)) return false;
         const hay = `${t.name} ${t.alias} ${t.fullTitle}`.toLowerCase();
         return words.every((w) => hay.includes(w));
       })
@@ -827,7 +881,7 @@ function StartPicker({
           (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1) ||
           a.name.localeCompare(b.name, "ja"),
       );
-  }, [q, tracks, maxFrom, usedSongs, skipsTrack]);
+  }, [q, tracks, maxFrom, usedSongs, skipsTrack, targeting, fitted]);
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
@@ -838,48 +892,58 @@ function StartPicker({
         {onCancel && (
           <button
             onClick={onCancel}
-            className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+            className="btn"
           >
             やめる
           </button>
         )}
       </div>
-      <p className="mt-1 text-[13px] text-fg-muted">
-        {mode === "jump"
-          ? "繋ぎが記録されていない曲へも移れます。選ぶと、繋いだ曲として続きから並びます。"
-          : "選ぶとここから繋げる先が並びます。長くつなげる曲が上です。"}
-        {/* 全曲ぶんを条件つきで数え直すと重いので、ここの数だけは条件を入れる前の数 */}
-        {" 右の「◯分/◯分」は、一番長い道筋を繋ぎで切って流した長さ／曲を最後まで流した全長です。"}
-        {filtering && " 右の数は除外条件で外した繋ぎを通らずに数えたものです。"}
+      <p
+        className="mt-1 text-[13px] text-fg-muted"
+        title={`長くつなげる曲が上です。${filtering ? "右の数は、除外条件で外した繋ぎを通らずに数えています。" : ""}`}
+      >
+        {mode === "jump" ? "記録に無い曲へも、続きとして移れます。" : "右の「最大◯曲」を押すと道筋が開きます。"}
       </p>
-      {/* 最初の1曲を選ぶ前から条件を決められるように（並びと数が条件で変わるため） */}
-      <div className="mt-3 flex justify-end">{filterButton}</div>
+      {/*
+        セットを組む・プレイリスト・前のセットへの入口は1行の小さいボタンにまとめる。
+        大きいボタンを3段積んでいた頃は、肝心の曲の一覧が画面の下半分へ押し出されていた。
+        リセットの直後に立つのがこの画面なので、**一覧より上に**置くことは変えない
+      */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {mode === "start" && (
+          <>
+            <Link href="/play/plan" className="btn btn-accent px-3">
+              セットを組む
+            </Link>
+            <Link href="/playlists" className="btn btn-accent px-3">
+              プレイリスト
+            </Link>
+            <Link href="/play/history" className="btn px-3">
+              履歴
+            </Link>
+          </>
+        )}
+        <span className="ml-auto flex gap-1.5">
+          {mode === "start" && (
+            <button
+              onClick={() => setTargetOpen((v) => !v)}
+              aria-expanded={targetOpen}
+              className={`btn px-3 text-[12px] ${targeting ? "btn-accent" : ""}`}
+            >
+              {targeting ? `長さ: ${targetLabel(target)}` : "長さ指定"}
+            </button>
+          )}
+          {filterButton}
+        </span>
+      </div>
+      {mode === "start" && targetOpen && (
+        <TargetPanel target={target} onChange={onTarget} onClose={() => setTargetOpen(false)} />
+      )}
       {filterPanel}
-      {/* リセットの直後に立つのがこの画面なので、**曲の一覧より上に**履歴の入口を置く
-          （84曲の下に置くと、前のセットを見返したい人には届かない） */}
-      {mode === "start" && (
-        <Link
-          href="/play/plan"
-          className="tap mt-3 flex items-center justify-center rounded-card border border-accent/45 bg-accent/10 text-center text-[13px] text-accent transition-colors hover:border-accent"
-        >
-          入れたい曲を選んでセットを組む →
-        </Link>
-      )}
-      {mode === "start" && (
-        <Link
-          href="/playlists"
-          className="tap mt-2 flex items-center justify-center rounded-card border border-accent/45 bg-accent/10 text-center text-[13px] text-accent transition-colors hover:border-accent"
-        >
-          イベントのプレイリスト →
-        </Link>
-      )}
-      {mode === "start" && (
-        <Link
-          href="/play/history"
-          className="tap mt-3 flex items-center justify-center rounded-card border border-border bg-surface text-center text-[13px] text-fg-muted transition-colors hover:border-border-bright hover:text-fg"
-        >
-          前にかけたセットを見る →
-        </Link>
+      {hiddenByTarget > 0 && (
+        <p className="mt-2 text-[12px] text-fg-subtle">
+          「{targetLabel(target)}」に収まらない{hiddenByTarget}曲と、繋ぎの無い曲を外しています。
+        </p>
       )}
       <input
         value={q}
@@ -926,23 +990,24 @@ function StartPicker({
               行ごとに右端がずれたうえ、曲名が 120px 前後に押し込まれて3〜4行に割れていた
             */}
             <button
-              onClick={() => maxRoute[t.id] && setOpenId((cur) => (cur === t.id ? null : t.id))}
-              disabled={!maxRoute[t.id]}
+              onClick={() => hasRoute(t.id) && setOpenId((cur) => (cur === t.id ? null : t.id))}
+              disabled={!hasRoute(t.id)}
               aria-expanded={openId === t.id}
               title="押すと、この数を出した道筋が開きます"
               className="tap flex w-[6.25rem] shrink-0 flex-col items-end justify-center gap-0.5 whitespace-nowrap py-1.5 pl-1 pr-3.5 text-right font-mono text-[11px] tabular-nums"
             >
-                <span className={(maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"}>
-                  {(maxFrom[t.id] ?? 1) > 1
-                    ? `最大${maxFrom[t.id]}曲${truncated?.has(t.id) ? "以上" : ""}`
-                    : "行き止まり"}
-                  {maxRoute[t.id] && <span className="ml-0.5">{openId === t.id ? "▴" : "▾"}</span>}
-                </span>
-                {/* その道筋を流したら何分か。上がカット後、下が曲を頭から最後まで流した全長 */}
-                {(maxFrom[t.id] ?? 1) > 1 && maxLength[t.id] && (
-                  <span className="text-fg-muted" title="繋ぎで切った長さ（全長 = 曲を頭から最後まで流した場合）">
-                    {minutesLabel(maxLength[t.id].cutSec).replace("約", "")}
-                    <span className="text-fg-subtle">/{minutesLabel(maxLength[t.id].fullSec).replace("約", "")}</span>
+                {targeting ? (
+                  // 長さ指定があるときは、枠に収まるところで切った道筋の曲数と長さ（カット後）
+                  <span className="text-hot">
+                    {fitted.get(t.id)?.songs}曲・{minutesLabel(fitted.get(t.id)?.cutSec ?? 0)}
+                    {(fitted.get(t.id)?.edges.length ?? 0) > 0 && <span className="ml-0.5">{openId === t.id ? "▴" : "▾"}</span>}
+                  </span>
+                ) : (
+                  <span className={(maxFrom[t.id] ?? 1) > 1 ? "text-hot" : "text-fg-subtle"}>
+                    {(maxFrom[t.id] ?? 1) > 1
+                      ? `最大${maxFrom[t.id]}曲${truncated?.has(t.id) ? "以上" : ""}`
+                      : "行き止まり"}
+                    {maxRoute[t.id] && <span className="ml-0.5">{openId === t.id ? "▴" : "▾"}</span>}
                   </span>
                 )}
                 <span className="text-fg-subtle">
@@ -950,28 +1015,27 @@ function StartPicker({
                 </span>
             </button>
             </div>
-            {openId === t.id && maxRoute[t.id] && (
-              <div className="border-t border-border px-3.5 pb-3 pt-2">
-                <RouteSteps
-                  trackIds={[t.id, ...maxRoute[t.id].map((id) => transitionById.get(id)?.toTrackId ?? "?")]}
-                  edges={maxRoute[t.id].map((id) => transitionById.get(id)).filter((e): e is Transition => !!e)}
-                  trackById={trackById}
-                  cueById={cueById}
-                />
-                <button
-                  onClick={() => onPick(t.id)}
-                  className="tap mt-2.5 flex w-full items-center justify-center rounded-card border border-hot/50 bg-hot/12 text-[13.5px] font-semibold text-hot"
-                >
-                  {mode === "jump" ? "この曲へ移る" : "この曲から始める"}
-                </button>
-                <SaveAsPlaylist
-                  trackIds={[t.id, ...maxRoute[t.id].map((id) => transitionById.get(id)?.toTrackId ?? "?")]}
-                  edges={maxRoute[t.id].map((id) => transitionById.get(id)).filter((e): e is Transition => !!e)}
-                  trackById={trackById}
-                  defaultName={`${t.name} 始まり 最大${maxRoute[t.id].length + 1}曲`}
-                />
-              </div>
-            )}
+            {openId === t.id && hasRoute(t.id) && (() => {
+              const edges = fitted.get(t.id)?.edges ?? [];
+              const ids = [t.id, ...edges.map((e) => e.toTrackId)];
+              return (
+                <div className="border-t border-border px-3.5 pb-3 pt-2">
+                  <RouteSteps trackIds={ids} edges={edges} trackById={trackById} cueById={cueById} />
+                  <button
+                    onClick={() => onPick(t.id, edges.map((e) => e.id))}
+                    className="btn btn-hot mt-2.5 w-full rounded-card text-[13.5px]"
+                  >
+                    {mode === "jump" ? "この曲へ移る" : "この曲から始める"}
+                  </button>
+                  <SaveAsPlaylist
+                    trackIds={ids}
+                    edges={edges}
+                    trackById={trackById}
+                    defaultName={`${t.name} 始まり ${targeting ? targetLabel(target) : `最大${ids.length}曲`}`}
+                  />
+                </div>
+              );
+            })()}
           </li>
         ))}
         {shown.length === 0 && (

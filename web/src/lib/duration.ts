@@ -25,7 +25,7 @@ export type Hop = {
   barsAfter: number | null;
 };
 
-type Lookup = {
+export type Lookup = {
   durationSec: (trackId: string) => number | null;
   bpm: (trackId: string) => number | null;
   cueMs: (cueId: string) => number | null;

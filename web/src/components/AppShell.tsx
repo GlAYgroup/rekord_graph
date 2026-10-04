@@ -47,17 +47,6 @@ const TABS = [
     ),
   },
   {
-    href: "/chain",
-    label: "チェーン",
-    match: (p: string) => p.startsWith("/chain"),
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
-        <path d="M9.5 13.5a4 4 0 0 0 5.7 0l3-3a4 4 0 1 0-5.7-5.6l-1.2 1.2" />
-        <path d="M14.5 10.5a4 4 0 0 0-5.7 0l-3 3a4 4 0 1 0 5.7 5.6l1.2-1.2" />
-      </svg>
-    ),
-  },
-  {
     href: "/practice",
     label: "練習",
     match: (p: string) => p.startsWith("/practice"),
@@ -78,16 +67,6 @@ const TABS = [
         <rect x="3" y="4.5" width="12" height="5" rx="1.6" />
         <rect x="3" y="14.5" width="12" height="5" rx="1.6" />
         <path d="M18 8.5v7M18 15.5l-2.2-2.4M18 15.5l2.2-2.4" />
-      </svg>
-    ),
-  },
-  {
-    href: "/health",
-    label: "状態",
-    match: (p: string) => p.startsWith("/health"),
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
-        <path d="M3 12h4l2.5-6 4 12L16 12h5" />
       </svg>
     ),
   },

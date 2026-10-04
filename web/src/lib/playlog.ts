@@ -1,3 +1,5 @@
+import { parseTarget, type SetTarget } from "./setTarget";
+
 /**
  * プレイ画面（`/play`）が端末に残すもの = **今のセットの途中**と、**終わったセットの履歴**。
  *
@@ -194,4 +196,18 @@ export function readPlaylistPositions(): Record<string, number> {
 
 export function writePlaylistPosition(id: string, pos: number) {
   write(PLAYLIST_POS, { ...readPlaylistPositions(), [id]: pos });
+}
+
+/**
+ * /play の曲を選ぶ一覧の「長さ指定」（何曲・何分のセットにしたいか。`lib/setTarget.ts`）。
+ * 除外条件と同じく端末が持ち、リセットでも消さない
+ */
+export const TARGET = "rg.play.target.v1";
+
+export function readTarget(): SetTarget {
+  return parseTarget(parse(TARGET));
+}
+
+export function writeTarget(t: SetTarget) {
+  write(TARGET, t);
 }

@@ -42,14 +42,16 @@ export function PlaylistIndex({ playlists, tracks }: { playlists: Playlist[]; tr
         <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">プレイリスト</h1>
         <Link
           href="/play"
-          className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+          className="btn"
         >
           ← プレイ
         </Link>
       </div>
-      <p className="mt-1 text-[13px] text-fg-muted">
-        イベントごとのセットを残しておく場所です。道筋から作るときは「セットを組む」か、
-        /play の曲を選ぶ一覧で「最大◯曲」を開いて「プレイリストとして保存」から。
+      <p
+        className="mt-1 text-[13px] text-fg-muted"
+        title="道筋から作るときは「セットを組む」か、/play の「最大◯曲」を開いて「プレイリストとして保存」から"
+      >
+        イベントごとのセットを残しておく場所です。
       </p>
 
       <section data-edit className="mt-4 rounded-card border border-border bg-surface p-3">
@@ -70,7 +72,7 @@ export function PlaylistIndex({ playlists, tracks }: { playlists: Playlist[]; tr
           <button
             onClick={create}
             disabled={!name.trim() || busy}
-            className="tap rounded-card border border-accent/50 bg-accent/10 px-4 text-[14px] font-semibold text-accent disabled:opacity-40"
+            className="btn btn-accent rounded-card px-4 text-[14px] font-semibold"
           >
             {busy ? "作成中…" : "作って曲を並べる"}
           </button>

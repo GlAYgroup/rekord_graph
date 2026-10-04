@@ -41,14 +41,13 @@ export function PlayHistory({
         <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">プレイ履歴</h1>
         <Link
           href="/play"
-          // リンクは button と違って中身を縦に寄せないので、44px の高さの上端に字が貼り付く
-          className="tap inline-flex shrink-0 items-center rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+          className="btn"
         >
           プレイへ
         </Link>
       </div>
       <p className="mt-1 text-[13px] text-fg-muted">
-        リセットするたびに、そのセットでどう繋いだかがここに残ります（この端末の中だけ）。
+        リセットしたセットの繋ぎ方が、この端末に残ります。
       </p>
 
       {sets === null ? (
@@ -79,13 +78,13 @@ export function PlayHistory({
                     <>
                       <button
                         onClick={() => { setSets(deleteSet(set.id)); setConfirmId(null); }}
-                        className="tap rounded-full border border-warn/50 bg-warn/10 px-3 text-[12px] text-warn"
+                        className="btn btn-warn"
                       >
                         消す
                       </button>
                       <button
                         onClick={() => setConfirmId(null)}
-                        className="tap rounded-full border border-border px-3 text-[12px] text-fg-subtle hover:text-fg"
+                        className="btn"
                       >
                         やめる
                       </button>
@@ -93,7 +92,7 @@ export function PlayHistory({
                   ) : (
                     <button
                       onClick={() => setConfirmId(set.id)}
-                      className="tap rounded-full border border-border px-3 text-[12px] text-fg-subtle hover:text-fg"
+                      className="btn"
                     >
                       削除
                     </button>

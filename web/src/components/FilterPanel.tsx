@@ -22,9 +22,7 @@ export function FilterPanel({
   onClose: () => void;
 }) {
   const chip = (on: boolean) =>
-    `tap rounded-full border px-3.5 text-[13px] transition-colors ${
-      on ? "border-accent/60 bg-accent/12 text-accent" : "border-border bg-surface text-fg-muted hover:text-fg"
-    }`;
+    `btn px-3.5 text-[13px] ${on ? "btn-accent" : ""}`;
   const difficultyChoices: { value: string | null; label: string }[] = [
     { value: null, label: "全部" },
     ...DIFFICULTIES.slice(0, -1).reverse().map((d, i, arr) => ({
@@ -103,13 +101,13 @@ export function FilterPanel({
       <div className="flex gap-2">
         <button
           onClick={() => onChange(NO_FILTER)}
-          className="tap flex-1 rounded-card border border-border px-4 text-[13px] text-fg-muted hover:text-fg"
+          className="btn flex-1 rounded-card px-4 text-[13px]"
         >
           条件を外す
         </button>
         <button
           onClick={onClose}
-          className="tap flex-1 rounded-card border border-border bg-surface-2 px-4 text-[13px] text-fg hover:border-border-bright"
+          className="btn flex-1 rounded-card bg-surface-2 px-4 text-[13px] text-fg"
         >
           閉じる
         </button>
@@ -135,11 +133,7 @@ function SkipChips({
             key={g.key}
             onClick={() => onChange(off ? skipped.filter((k) => k !== g.key) : [...skipped, g.key])}
             aria-pressed={off}
-            className={`tap rounded-full border px-3 text-[13px] transition-colors ${
-              off
-                ? "border-warn/60 bg-warn/12 text-warn line-through"
-                : "border-border bg-surface text-fg-muted hover:text-fg"
-            }`}
+            className={`btn px-3 text-[13px] ${off ? "btn-warn line-through" : ""}`}
           >
             {g.label}
             <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">{g.count}</span>

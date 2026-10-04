@@ -28,7 +28,8 @@ type SortKey = "name" | "bpm" | "links";
 
 export function TrackSearch({ tracks }: { tracks: SearchTrack[] }) {
   const [q, setQ] = useState("");
-  const [sort, setSort] = useState<SortKey>("name");
+  // 既定は繋ぎの多さ順。名前順だと繋ぎの無い曲（全体の8割）が上に来て、繋がっている曲が埋もれる
+  const [sort, setSort] = useState<SortKey>("links");
 
   const shown = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -52,15 +53,12 @@ export function TrackSearch({ tracks }: { tracks: SearchTrack[] }) {
             className="h-11 w-full rounded-card border border-border bg-surface px-4 text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent sm:ml-auto sm:w-72"
           />
           <div className="flex items-center gap-1 text-[12px]" role="group" aria-label="並び替え">
-            {([["name", "名前"], ["bpm", "BPM"], ["links", "繋ぎの多さ"]] as const).map(([k, label]) => (
+            {([["links", "繋ぎの多さ"], ["name", "名前"], ["bpm", "BPM"]] as const).map(([k, label]) => (
               <button
                 key={k}
                 onClick={() => setSort(k)}
-                className={`rounded-full border px-3 py-1.5 transition-colors ${
-                  sort === k
-                    ? "border-accent/50 bg-accent/10 text-accent"
-                    : "border-border text-fg-subtle hover:text-fg-muted"
-                }`}
+                aria-pressed={sort === k}
+                className={`btn px-3 text-[12px] ${sort === k ? "btn-accent" : ""}`}
               >
                 {label}
               </button>

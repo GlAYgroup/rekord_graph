@@ -25,24 +25,30 @@ export function HopDetails({
   const bars = barsLabel(t, cueLabel(toCue));
   return (
     <div className="min-w-0 space-y-2 sm:flex-1">
-      <CueLine cue={fromCue} size="sm" />
-      <TrackTimeline
-        durationSec={from?.durationSec ?? null}
-        cues={cuesByTrack.get(t.fromTrackId) ?? []}
-        highlightCueId={t.fromCueId}
-        mode="exit"
-      />
-      <div className="flex items-center gap-2 py-0.5 pl-[18px] text-fg-subtle">
-        <span className="text-[13px]">↓</span>
-        <span className="h-px flex-1 bg-border" />
+      {/*
+        From と To を**横に並べる**。縦に積んでいた頃はカード1枚がスマホの画面の4割を取り、
+        本番中でも次の候補が1枚半しか見えなかった（DESIGN.md「スクロールなしで候補が見える」）。
+        キュー名は刈らない — 列が細くなったぶんは折り返す。詰めたのはタイムラインの高さと余白
+      */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-start gap-x-1.5 gap-y-1.5">
+        <CueLine cue={fromCue} size="sm" />
+        <span className="row-span-2 self-center text-[13px] text-fg-subtle" aria-label="から">→</span>
+        <CueLine cue={toCue} size="sm" />
+        <TrackTimeline
+          durationSec={from?.durationSec ?? null}
+          cues={cuesByTrack.get(t.fromTrackId) ?? []}
+          highlightCueId={t.fromCueId}
+          mode="exit"
+          size="sm"
+        />
+        <TrackTimeline
+          durationSec={to?.durationSec ?? null}
+          cues={cuesByTrack.get(t.toTrackId) ?? []}
+          highlightCueId={t.toCueId}
+          mode="enter"
+          size="sm"
+        />
       </div>
-      <CueLine cue={toCue} size="sm" />
-      <TrackTimeline
-        durationSec={to?.durationSec ?? null}
-        cues={cuesByTrack.get(t.toTrackId) ?? []}
-        highlightCueId={t.toCueId}
-        mode="enter"
-      />
 
       {(t.technique || t.difficulty || (showRating && t.rating) || bars || t.comment) && (
         <div className="space-y-1 pt-0.5">

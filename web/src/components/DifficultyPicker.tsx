@@ -69,11 +69,7 @@ export function DifficultyPicker({
             onClick={() => set(on ? null : d)}
             aria-pressed={on}
             aria-label={`難易度 ${d}${on ? "（もう一度押すと外す）" : ""}`}
-            className={`tap inline-flex items-center rounded-full border px-2.5 text-[12px] transition-colors ${
-              on
-                ? "border-accent/60 bg-accent/12 text-accent"
-                : "border-border text-fg-subtle hover:border-border-bright hover:text-fg"
-            } ${busy ? "opacity-60" : ""}`}
+            className={`btn px-2.5 text-[12px] ${on ? "btn-accent" : ""} ${busy ? "opacity-60" : ""}`}
           >
             {d}
           </button>

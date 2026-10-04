@@ -167,7 +167,7 @@ export function PlaylistEditor({
         />
         <Link
           href="/playlists"
-          className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+          className="btn"
         >
           ← 一覧
         </Link>
@@ -265,7 +265,7 @@ export function PlaylistEditor({
           data-edit
           onClick={save}
           disabled={!dirty || busy || !name.trim()}
-          className="tap flex-1 rounded-card border border-accent/50 bg-accent/10 px-4 text-[14px] font-semibold text-accent disabled:opacity-40"
+          className="btn btn-accent flex-1 rounded-card px-4 text-[14px] font-semibold"
         >
           {busy ? "保存中…" : dirty ? "保存する" : "保存済み"}
         </button>
@@ -273,7 +273,7 @@ export function PlaylistEditor({
           <button
             onClick={startPlay}
             disabled={busy}
-            className="tap flex flex-1 items-center justify-center rounded-card border border-hot/50 bg-hot/12 px-4 text-[14px] font-semibold text-hot disabled:opacity-40"
+            className="btn btn-hot flex-1 rounded-card px-4 text-[14px]"
           >
             {dirty ? "保存してこの順でプレイ →" : "この順でプレイ →"}
           </button>
@@ -325,8 +325,8 @@ export function PlaylistEditor({
         {confirmDelete ? (
           <div className="flex flex-wrap items-center gap-2 text-[13px]">
             <span className="text-warn">「{playlist.name}」を削除しますか？（Notion のゴミ箱から戻せます）</span>
-            <button onClick={destroy} disabled={busy} className="tap rounded-full border border-warn/50 px-3 text-warn">削除する</button>
-            <button onClick={() => setConfirmDelete(false)} className="tap rounded-full border border-border px-3 text-fg-muted">やめる</button>
+            <button onClick={destroy} disabled={busy} className="btn btn-warn">削除する</button>
+            <button onClick={() => setConfirmDelete(false)} className="btn">やめる</button>
           </div>
         ) : (
           <button onClick={() => setConfirmDelete(true)} className="tap text-[12.5px] text-fg-subtle hover:text-warn">

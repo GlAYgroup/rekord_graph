@@ -111,7 +111,7 @@ export function TransitionCard({
           <PracticeToggle id={transition.id} value={transition.practice} />
           <Link
             href={`/new?edit=${transition.id}`}
-            className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+            className="btn px-3 text-[12px]"
             title="この繋ぎのキュー・種類・コメントを直す"
           >
             編集

@@ -49,7 +49,7 @@ export function SaveAsPlaylist({
     return (
       <Link
         href={`/playlists/${savedId}`}
-        className="tap mt-2 flex items-center justify-center rounded-card border border-accent/50 bg-accent/10 text-[13.5px] text-accent"
+        className="btn btn-accent mt-2 w-full rounded-card text-[13.5px]"
       >
         保存しました · プレイリストを開く →
       </Link>
@@ -61,7 +61,7 @@ export function SaveAsPlaylist({
         data-edit
         onClick={() => setOpen(true)}
         disabled={rbIds.some((id) => !id)}
-        className="tap mt-2 flex w-full items-center justify-center rounded-card border border-accent/45 bg-accent/10 text-[13.5px] text-accent disabled:opacity-40"
+        className="btn btn-accent mt-2 w-full rounded-card text-[13.5px]"
       >
         この道筋をプレイリストとして保存
       </button>
@@ -87,11 +87,11 @@ export function SaveAsPlaylist({
         <button
           onClick={save}
           disabled={busy || !name.trim()}
-          className="tap flex-1 rounded-card border border-accent/50 bg-accent/10 text-[13.5px] font-semibold text-accent disabled:opacity-40"
+          className="btn btn-accent flex-1 rounded-card text-[13.5px] font-semibold"
         >
           {busy ? "保存中…" : `${trackIds.length}曲を保存`}
         </button>
-        <button onClick={() => setOpen(false)} className="tap rounded-card border border-border px-3 text-[13px] text-fg-muted">
+        <button onClick={() => setOpen(false)} className="btn rounded-card px-3 text-[13px]">
           やめる
         </button>
       </div>

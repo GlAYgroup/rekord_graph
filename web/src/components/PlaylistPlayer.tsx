@@ -85,7 +85,7 @@ export function PlaylistPlayer({
           </div>
           <Link
             href={`/playlists/${playlist.id}`}
-            className="tap shrink-0 rounded-full border border-border bg-surface px-3 text-[12.5px] text-fg-subtle hover:text-fg"
+            className="btn"
           >
             並びを見る
           </Link>
@@ -134,7 +134,7 @@ export function PlaylistPlayer({
         {pos > 0 && (
           <button
             onClick={() => { setConfirmRestart(false); setPos(pos - 1); }}
-            className="tap rounded-card border border-border bg-surface px-4 text-[13.5px] text-fg-muted hover:text-fg"
+            className="btn rounded-card px-4 text-[13.5px]"
           >
             ← 前の曲へ
           </button>
@@ -142,7 +142,7 @@ export function PlaylistPlayer({
         {pos < last && (
           <button
             onClick={() => { setConfirmRestart(false); setPos(pos + 1); }}
-            className="tap flex-1 rounded-card border border-hot/50 bg-hot/12 px-4 py-3 text-[15px] font-semibold text-hot"
+            className="btn btn-hot flex-1 rounded-card px-4 py-3 text-[15px]"
           >
             次の曲へ →
           </button>
@@ -180,8 +180,8 @@ export function PlaylistPlayer({
           {confirmRestart ? (
             <div className="flex flex-wrap items-center gap-2 text-[13px]">
               <span className="text-warn">1曲目に戻しますか？</span>
-              <button onClick={() => { setConfirmRestart(false); setPos(0); }} className="tap rounded-full border border-warn/50 px-3 text-warn">戻す</button>
-              <button onClick={() => setConfirmRestart(false)} className="tap rounded-full border border-border px-3 text-fg-muted">やめる</button>
+              <button onClick={() => { setConfirmRestart(false); setPos(0); }} className="btn btn-warn">戻す</button>
+              <button onClick={() => setConfirmRestart(false)} className="btn">やめる</button>
             </div>
           ) : (
             <button onClick={() => setConfirmRestart(true)} className="tap text-[12.5px] text-fg-subtle hover:text-fg">

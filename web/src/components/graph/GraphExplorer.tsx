@@ -167,7 +167,7 @@ export function GraphExplorer({
   const glow = routeMode !== "off";
   const [showIsolated, setShowIsolated] = useState(false);
   const [q, setQ] = useState("");
-  /** スマホの左上の引き出し（ルート強調・まとめて移動・未接続・配置パターン）を開いているか */
+  /** 左上の引き出し（ルート強調・まとめて移動・未接続・除外条件・配置パターン）を開いているか。スマホも PC も同じ */
   const [toolsOpen, setToolsOpen] = useState(false);
 
   /**
@@ -759,6 +759,17 @@ export function GraphExplorer({
     setSelected(null);
   }, []);
 
+  /**
+   * スマホの選択パネル（下から出るシート）を広げている曲。
+   * 曲を選んだ直後は**畳んだまま**（1行 = 曲名・BPM・最大◯曲だけ）にする — 広げたまま出すと
+   * 画面の半分が埋まり、選んだ曲の周り（いちばん見たいもの）が隠れる。
+   * 「広げている」は曲ごとに持つ: 地図で別の曲をタップすれば畳んだ状態に戻り、
+   * 広げたシートの一覧から曲へ移ったときは広げたまま続ける（`setSheetFor` も合わせる）。
+   * PC（md 以上）は右のパネルを常に全部出すので、これを見ない
+   */
+  const [sheetFor, setSheetFor] = useState<string | null>(null);
+  const sheetOpen = !!selected && sheetFor === selected;
+
   // 画面サイズが変わったら（回転・ウィンドウリサイズ・分割表示）フィットし直す。
   // 形そのものは変えず、画面に収める倍率だけを合わせる（スマホと PC の違いはここだけ）。
   useEffect(() => {
@@ -1206,10 +1217,10 @@ export function GraphExplorer({
 
       {/*
         ── 左上: 検索と絞り込み ──
-        スマホでは「ネットワーク / ツリー / 検索」だけを常に出し、残り（ルート強調・
-        まとめて移動・未接続・配置パターン）は「表示・配置」で開く引き出しに入れる。
-        全部出しっぱなしだと、画面の上半分がボタンで埋まってグラフが見えない。
-        PC（md 以上）は場所に余裕があるので引き出しにせず常に出す
+        常に出すのは「ネットワーク / ツリー / 表示・配置 / 検索」だけ。残り（ルート強調・
+        まとめて移動・未接続・除外条件・配置パターン）は「表示・配置」で開く引き出しに入れる。
+        全部出しっぱなしだと、スマホでは画面の上半分が、PC でも左上がボタン10個で埋まって
+        地図が見えない。引き出しはスマホと PC で同じ1実装（PC だけ常に出す分岐は持たない）
       */}
       <div className="absolute left-3 top-3 flex w-[min(280px,calc(100%-24px))] flex-col gap-2">
         <div className="flex gap-1.5">
@@ -1223,14 +1234,14 @@ export function GraphExplorer({
           >
             ツリー
           </Link>
-          {/* 引き出しの取っ手（スマホだけ）。何か効いているときは点を付ける = 閉じていても気づける */}
+          {/* 引き出しの取っ手。何か効いているときは点を付ける = 閉じていても気づける */}
           <button
             onClick={() => setToolsOpen((v) => !v)}
             aria-expanded={toolsOpen}
-            className={`tap relative ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-3 text-[12px] backdrop-blur transition-colors md:hidden ${
-              toolsOpen ? "border-fg-subtle bg-elevated text-fg" : "border-border bg-surface/90 text-fg-muted"
+            className={`tap relative ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-3 text-[12px] backdrop-blur transition-colors ${
+              toolsOpen ? "border-fg-subtle bg-elevated text-fg" : "border-border bg-surface/90 text-fg-muted hover:text-fg"
             }`}
-            title="ルート強調・まとめて移動・未接続・配置パターン"
+            title="ルート強調・まとめて移動・未接続・除外条件・配置パターン"
           >
             表示・配置 <span aria-hidden className="text-[10px]">{toolsOpen ? "▲" : "▼"}</span>
             {!toolsOpen && toolsActive && (
@@ -1285,7 +1296,7 @@ export function GraphExplorer({
             )}
           </div>
         )}
-        <div className={`${toolsOpen ? "flex" : "hidden"} flex-col gap-2 md:flex`}>
+        <div className={`${toolsOpen ? "flex" : "hidden"} flex-col gap-2`}>
         <div className="flex flex-wrap gap-1.5">
           <button
             onClick={() => setRouteMode((m) => (m === "highlight" ? "off" : "highlight"))}
@@ -1516,27 +1527,52 @@ export function GraphExplorer({
       {/*
         ── 選択パネル ──
         PC ではズーム（右下・3段で下から 156px）と同じ列に立つので、その上で止める
-        （繋ぎの多い曲を選ぶと、パネルが伸びて ＋ − ⊡ を覆っていた）
+        （繋ぎの多い曲を選ぶと、パネルが伸びて ＋ − ⊡ を覆っていた）。
+        スマホでは下からのシート。選んだ直後は1行だけ（曲名・BPM・Key・最大◯曲・✕）で、
+        取っ手か見出しをタップすると広がって中身を全部出す（以前は選ぶだけで画面の約半分を覆っていた）。
+        キャンバスの箱が下タブ（--nav-h）の上で終わっているので、bottom-0 で下タブの上に乗る
       */}
       {sel && selPanel && (
-        <aside className="absolute inset-x-0 bottom-0 max-h-[46%] overflow-y-auto rounded-t-2xl border-t border-border bg-surface/95 backdrop-blur-md md:inset-x-auto md:bottom-auto md:right-3 md:top-16 md:max-h-[calc(100%-232px)] md:w-[320px] md:rounded-card md:border">
-          <div className="sticky top-0 flex items-start gap-2 border-b border-border bg-surface/95 p-4 backdrop-blur">
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[18px] font-bold leading-tight break-words">{sel.name}</h2>
-              <p className="mt-0.5 font-mono text-[12px] tabular-nums text-fg-muted">
-                {sel.bpm ?? "–"} BPM{sel.musicalKey && ` · ${sel.musicalKey}`}
-                <span className="text-hot"> · 最大{routes[sel.id]?.trackIds.length ?? sel.maxFrom}曲</span>
-              </p>
-            </div>
+        <aside
+          className={`absolute inset-x-0 bottom-0 overflow-y-auto overscroll-contain rounded-t-2xl border-t border-border bg-surface/95 shadow-[var(--shadow-card)] backdrop-blur-md md:inset-x-auto md:bottom-auto md:right-3 md:top-16 md:max-h-[calc(100%-232px)] md:w-[320px] md:rounded-card md:border md:shadow-none ${
+            sheetOpen ? "max-h-[85%]" : "max-h-[40%]"
+          }`}
+        >
+          <div className="sticky top-0 z-10 flex items-start gap-1 border-b border-border bg-surface/95 backdrop-blur">
+            {/*
+              見出し = シートの取っ手（スマホだけ）。中に ✕ を入れない（ボタンの入れ子はタップが食われる）。
+              PC では押しても何も変わらないので、指を素通しにして普通の見出しとして読ませる
+            */}
+            <button
+              type="button"
+              onClick={() => setSheetFor(sheetOpen ? null : sel.id)}
+              aria-expanded={sheetOpen}
+              aria-label={`${sel.name} の詳細を${sheetOpen ? "畳む" : "広げる"}`}
+              className="min-w-0 flex-1 px-4 pb-3 pt-2 text-left md:pointer-events-none md:p-4"
+            >
+              <span aria-hidden className="mx-auto mb-2 block h-1 w-10 rounded-full bg-border-bright md:hidden" />
+              <span className="flex items-start gap-2">
+                <span className="min-w-0 flex-1">
+                  <h2 className="text-[16px] font-bold leading-tight break-words md:text-[18px]">{sel.name}</h2>
+                  <span className="mt-0.5 block font-mono text-[12px] tabular-nums text-fg-muted">
+                    {sel.bpm ?? "–"} BPM{sel.musicalKey && ` · ${sel.musicalKey}`}
+                    <span className="text-hot"> · 最大{routes[sel.id]?.trackIds.length ?? sel.maxFrom}曲</span>
+                  </span>
+                </span>
+                <span aria-hidden className="mt-0.5 shrink-0 text-[11px] text-fg-subtle md:hidden">
+                  {sheetOpen ? "▼" : "▲"}
+                </span>
+              </span>
+            </button>
             <button
               onClick={clearSelection}
-              className="tap -m-1.5 grid size-11 shrink-0 place-items-center text-fg-subtle hover:text-fg"
+              className="tap mr-1.5 mt-1.5 grid size-11 shrink-0 place-items-center text-fg-subtle hover:text-fg md:mr-2.5 md:mt-2.5"
               aria-label="閉じる"
             >
               ✕
             </button>
           </div>
-          <div className="space-y-4 p-4">
+          <div className={`space-y-4 p-4 ${sheetOpen ? "block" : "hidden"} md:block`}>
             <Link
               href={`/track/${sel.id}`}
               className="block rounded-card border border-accent/40 bg-accent/8 px-4 py-2.5 text-center text-[14px] text-accent transition-colors hover:border-accent/70"
@@ -1580,7 +1616,12 @@ export function GraphExplorer({
                     {selPanel[dir].map((t) => (
                       <li key={t.id} className="rounded-lg border border-border bg-surface-2">
                         <button
-                          onClick={() => { setSelected(t.otherId); centerOn(t.otherId); }}
+                          onClick={() => {
+                            // シートを広げて辿っているなら、移った先でも広げたまま（畳むと続きが読めない）
+                            if (sheetOpen) setSheetFor(t.otherId);
+                            setSelected(t.otherId);
+                            centerOn(t.otherId);
+                          }}
                           className="block w-full rounded-t-lg px-3 py-2 text-left transition-colors hover:bg-elevated"
                         >
                           {/* 曲名の右に BPM と「この先つなげる曲数」。
@@ -1635,7 +1676,7 @@ export function GraphExplorer({
                             <PracticeToggle id={t.id} value={t.practice} refresh={false} />
                             <Link
                               href={`/new?edit=${t.id}`}
-                              className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[11.5px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+                              className="btn px-3 text-[11.5px]"
                               title="この繋ぎのキュー・種類・コメントを直す"
                             >
                               編集

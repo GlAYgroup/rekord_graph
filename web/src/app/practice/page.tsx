@@ -33,8 +33,8 @@ export default async function PracticePage() {
     // relative z-1: 全面に敷いた .grain（fixed・z-index 0）より上に文字を置く（他の画面と同じ）
     <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
       <h1 className="text-[22px] font-bold leading-tight">要練習の繋ぎ · {rows.length}</h1>
-      <p className="mt-1 text-[13px] text-fg-muted">
-        曲ページ・グラフ・ここの「要練習」ボタンで付け外しできます。仕上がったら外して、空にするのが今日のゴール。
+      <p className="mt-1 text-[13px] text-fg-muted" title="曲ページ・グラフ・/play の下見でも付け外しできます">
+        仕上がった繋ぎは「要練習」を外して、ここを空にしていきます。
       </p>
 
       <ul className="mt-5 space-y-2">
@@ -72,7 +72,7 @@ export default async function PracticePage() {
                 <PracticeToggle id={t.id} value={t.practice} />
                 <Link
                   href={`/new?edit=${t.id}`}
-                  className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+                  className="btn px-3 text-[12px]"
                 >
                   編集
                 </Link>

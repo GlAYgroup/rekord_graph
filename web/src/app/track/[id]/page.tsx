@@ -109,7 +109,7 @@ export default async function TrackPage({
               <Link
                 data-edit
                 href={`/new?from=${id}`}
-                className="tap mt-4 inline-flex items-center rounded-card border border-hot/60 bg-hot/15 px-5 text-[14px] font-semibold text-hot transition-colors hover:border-hot"
+                className="btn btn-hot mt-4 rounded-card px-5 text-[14px]"
               >
                 この曲から繋ぎを追加 →
               </Link>
@@ -191,7 +191,7 @@ export default async function TrackPage({
                         <PracticeToggle id={t.id} value={t.practice} />
                         <Link
                           href={`/new?edit=${t.id}`}
-                          className="tap inline-flex items-center shrink-0 rounded-full border border-border px-3 text-[12px] text-fg-subtle transition-colors hover:border-border-bright hover:text-fg"
+                          className="btn px-3 text-[12px]"
                         >
                           編集
                         </Link>

@@ -76,11 +76,7 @@ export function PracticeToggle({
         onClick={toggle}
         aria-pressed={on}
         title={on ? "要練習マークを外す" : "次の練習で拾う繋ぎに付ける（/practice に一覧が出る）"}
-        className={`tap inline-flex items-center rounded-full border px-3 text-[12px] transition-colors ${
-          on
-            ? "border-warn/60 bg-warn/12 text-warn"
-            : "border-border text-fg-subtle hover:border-border-bright hover:text-fg"
-        } ${busy ? "opacity-60" : ""}`}
+        className={`btn px-3 text-[12px] ${on ? "btn-warn" : ""} ${busy ? "opacity-60" : ""}`}
       >
         {on ? "⚑ 要練習" : "要練習"}
       </button>

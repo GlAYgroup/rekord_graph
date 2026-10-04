@@ -1,6 +1,5 @@
 import { PlayDeck } from "@/components/PlayDeck";
 import { getGraph } from "@/lib/graph";
-import { setLength, type SetLength } from "@/lib/duration";
 import { longestRouteFrom } from "@/lib/route";
 
 export const metadata = { title: "プレイ | rekord_graph" };
@@ -22,20 +21,13 @@ export default async function PlayPage({
 
   // 「この先最大何曲」は全曲ぶんをここで計算しておく（探索が重いので端末で全部は回さない）。
   // 本番中に「使った曲を外した数」が要る分だけ、端末が maxOnwardFrom で数え直す
-  // 同じ道筋で「何分のセットになるか」も出す（曲を選ぶ一覧に添える）
+  // 何分のセットになるかは端末が数える（長さ指定で道筋を切るたびに変わるため。`lib/setTarget.ts`）
   const maxFrom: Record<string, number> = {};
-  const maxLength: Record<string, SetLength> = {};
   /** その数を出した道筋（繋ぎID）。一覧で「最大◯曲」を開くと、この道筋を読める */
   const maxRoute: Record<string, string[]> = {};
-  const lookup = {
-    durationSec: (id: string) => g.trackById.get(id)?.durationSec ?? null,
-    bpm: (id: string) => g.trackById.get(id)?.bpm ?? null,
-    cueMs: (id: string) => g.cueById.get(id)?.positionMs ?? null,
-  };
   for (const t of g.tracks) {
     const r = longestRouteFrom(g, t.id);
     maxFrom[t.id] = r.trackIds.length;
-    maxLength[t.id] = setLength(r.trackIds, r.transitions, lookup);
     if (r.transitions.length > 0) maxRoute[t.id] = r.transitions.map((e) => e.id);
   }
 
@@ -45,7 +37,6 @@ export default async function PlayPage({
       cues={[...g.cueById.values()]}
       transitions={g.transitions}
       maxFrom={maxFrom}
-      maxLength={maxLength}
       maxRoute={maxRoute}
       initialTrackId={from}
     />
