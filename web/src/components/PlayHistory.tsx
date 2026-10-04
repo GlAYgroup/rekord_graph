@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { SaveAsPlaylist } from "./SaveAsPlaylist";
 import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import { deleteSet, readHistory, type PlaySet } from "@/lib/playlog";
 import type { Cue, Track, Transition } from "@/lib/types";
@@ -17,6 +18,11 @@ import type { Cue, Track, Transition } from "@/lib/types";
  * （名前だけ「不明な曲」になる）。セットの途中が黙って詰まる方が読めなくなる。
  *
  * 中身は端末だけが持つので、読むのは mount 後（サーバの描画と食い違わせない）。
+ *
+ * 書く口が2つある（どちらも Notion に書くので `data-edit` = 本番中は畳む）:
+ *  - 「曲を変える」で移った所の「この繋ぎを記録」… `/new?from=&to=` を2曲埋めて開く。
+ *    本番で急に繋いだものを、後から記録に起こす入口
+ *  - セットごとの「プレイリストとして保存」… `SaveAsPlaylist`。記録に無い間・消えた繋ぎは null で送る
  */
 export function PlayHistory({
   tracks, cues, transitions,
@@ -113,7 +119,7 @@ export function PlayHistory({
                   return (
                     <li key={`${set.id}-${i}`} className="px-4 py-2.5">
                       <div className="flex items-baseline gap-2 text-[14.5px]">
-                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                        <span className="shrink-0 font-mono text-[12px] tabular-nums text-fg-subtle">
                           {i + 1}
                         </span>
                         <Link
@@ -132,11 +138,11 @@ export function PlayHistory({
                       </div>
                       {via ? (
                         <div className="mt-0.5 pl-[18px]">
-                          <span className="font-mono text-[11.5px] break-words text-fg-subtle">
+                          <span className="font-mono text-[12px] break-words text-fg-subtle">
                             {cueLabel(cueOf(cueById, via.fromCueId))} → {toCueLabel}
                           </span>
                           {(via.technique || barsLabel(via, toCueLabel)) && (
-                            <span className="ml-2 text-[11.5px] text-fg-muted">
+                            <span className="ml-2 text-[12px] text-fg-muted">
                               {via.technique}
                               {via.technique && barsLabel(via, toCueLabel) && " · "}
                               {barsLabel(via, toCueLabel)}
@@ -144,18 +150,47 @@ export function PlayHistory({
                           )}
                         </div>
                       ) : (
-                        <div className="mt-0.5 pl-[18px] text-[11.5px] text-fg-subtle">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 pl-[18px] text-[12px] text-fg-subtle">
                           {/* 繋ぎ ID が無い = その場で別の曲へ移った。
                               ID はあるのに引けない = その繋ぎが後から消された。別物なので書き分ける */}
-                          {step.viaTransitionId
-                            ? "この繋ぎは記録から消えています"
-                            : "記録に無い繋ぎ（「曲を変える」で移りました）"}
+                          <span>
+                            {step.viaTransitionId
+                              ? "この繋ぎは記録から消えています"
+                              : "記録に無い繋ぎ（「曲を変える」で移りました）"}
+                          </span>
+                          {/* その場で繋いだものを記録に起こす入口。2曲とも一覧にあるときだけ（無い曲は入力画面で選べない） */}
+                          {!step.viaTransitionId && from && to && (
+                            <Link
+                              data-edit
+                              href={`/new?from=${fromId}&to=${step.trackId}`}
+                              className="btn px-2.5 text-[12px]"
+                            >
+                              この繋ぎを記録
+                            </Link>
+                          )}
                         </div>
                       )}
                     </li>
                   );
                 })}
               </ol>
+
+              {/*
+                このセットをイベントのプレイリストとして残す。間の繋ぎは押した繋ぎそのもの（ID）。
+                記録に無い間（「曲を変える」）・後から消えた繋ぎは null（API もプレイリストも「繋ぎなし」として持つ）。
+                記録に無い間・消えた繋ぎは null で渡す（プレイリストでは繋ぎ無しになる）。
+                曲一覧に無い曲が混ざると rekordbox の ID が引けないので、ボタンは押せない
+              */}
+              <div data-edit className="border-t border-border px-4 pb-3 pt-1">
+                <SaveAsPlaylist
+                  trackIds={set.steps.map((s) => s.trackId)}
+                  edges={set.steps.slice(1).map((s) =>
+                    (s.viaTransitionId && transitionById.get(s.viaTransitionId)) || null,
+                  )}
+                  trackById={trackById}
+                  defaultName={`${new Date(set.endedAt).toLocaleDateString("ja-JP")} のセット`}
+                />
+              </div>
             </li>
           ))}
         </ul>

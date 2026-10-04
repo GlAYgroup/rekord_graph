@@ -14,8 +14,11 @@ export function SaveAsPlaylist({
   trackIds, edges, trackById, defaultName,
 }: {
   trackIds: readonly string[];
-  /** `edges[i]` が `trackIds[i]` → `trackIds[i+1]` */
-  edges: readonly Transition[];
+  /**
+   * `edges[i]` が `trackIds[i]` → `trackIds[i+1]`。**null = 記録に無い間**（「曲を変える」で移った手・
+   * セットを組むで差し込んだ曲）。プレイリストでは繋ぎ無し（`-`）として残る
+   */
+  edges: readonly (Transition | null)[];
   trackById: ReadonlyMap<string, Track>;
   defaultName: string;
 }) {
@@ -33,7 +36,7 @@ export function SaveAsPlaylist({
       const res = await fetch("/api/playlists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, date: date || null, memo: "", trackRbIds: rbIds, hops: edges.map((e) => e.id) }),
+        body: JSON.stringify({ name, date: date || null, memo: "", trackRbIds: rbIds, hops: edges.map((e) => e?.id ?? null) }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `保存できませんでした（${res.status}）`);

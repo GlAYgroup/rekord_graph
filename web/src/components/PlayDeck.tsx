@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CommentEditor } from "./CommentEditor";
 import { usePerformance } from "./PerformanceMode";
 import { PracticeToggle } from "./PracticeToggle";
@@ -10,7 +10,7 @@ import { FilterPanel } from "./FilterPanel";
 import { TargetPanel } from "./TargetPanel";
 import { RatingPicker } from "./RatingPicker";
 import { TempoBadge } from "./TempoBadge";
-import { HopDetails } from "./HopDetails";
+import { HopDetails, KeyMatchBadge } from "./HopDetails";
 import { RouteSteps } from "./RouteSteps";
 import { SaveAsPlaylist } from "./SaveAsPlaylist";
 import { canFollow, minutesLabel, setLength, timingOf } from "@/lib/duration";
@@ -105,10 +105,17 @@ export function PlayDeck({
   /** リセットは2タップ。暗所で片手でも誤爆しないように、押してから確かめる */
   const [confirmReset, setConfirmReset] = useState(false);
   /**
-   * かけてきた順で押した曲（「本当に戻りますか？」を出している間だけ）。押した時点の曲数も控え、
-   * その後に進んだり「戻す」を押したりしたら確認は取り下げる（ずれた位置で戻らせない）
+   * かけてきた順で押した曲の位置（「本当に戻りますか？」を出している間だけ）。
+   * かけてきた順が変わったら**どんな変わり方でも**取り下げる（ずれた位置で戻らせない）。
+   * 以前は曲数だけで見ていたので、「戻す」→ 別の曲へ送る、のように数が同じに戻ると古い確認が生き返った。
+   * そのため steps は `changeSteps` からしか変えない
    */
-  const [confirmBack, setConfirmBack] = useState<{ index: number; length: number } | null>(null);
+  const [confirmBack, setConfirmBack] = useState<number | null>(null);
+  /** かけてきた順を変える唯一の口。戻る確認（`confirmBack`）を必ず一緒に取り下げる */
+  const changeSteps = (next: PlayStep[] | ((cur: PlayStep[]) => PlayStep[])) => {
+    setConfirmBack(null);
+    setSteps(next);
+  };
   /** 除外条件。端末に残したものを mount 後に読む */
   const [filter, setFilter] = useState<PlayFilter>(NO_FILTER);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -205,14 +212,17 @@ export function PlayDeck({
     if (initialTrackId && fromInUrl === initialTrackId) {
       // 曲を指定して来た人が優先。ただし指定は URL から外す
       // （セットの途中で再読み込みしたときに、また最初の曲へ戻されないように）
-      // 途中だったセットはここで終わる = 捨てずに履歴へ残す
-      archive(readCurrent().filter((s) => trackById.has(s.trackId)));
+      // 途中だったセットはここで終わる = 捨てずに履歴へ残す。
+      // 曲一覧に無い曲の手も**落とさない**（履歴が「不明な曲」として出す。詰めると1手が黙って消える）
+      archive(readCurrent());
       window.history.replaceState(null, "", "/play");
       return;
     }
-    // 端末に残した続きが正。空なら（リセット済みなど）古い指定の曲も使わず、最初の1曲から選ぶ
-    setSteps(readCurrent().filter((s) => trackById.has(s.trackId)));
-  }, [initialTrackId, trackById]);
+    // 端末に残した続きが正。空なら（リセット済みなど）古い指定の曲も使わず、最初の1曲から選ぶ。
+    // 曲一覧に無い曲（rekordbox から消えた・同期範囲から外れた）の手も落とさない — 落とすと
+    // 下の writeCurrent がそのまま書き戻し、セットの途中が黙って消える。表示で「不明な曲」と出す
+    setSteps(readCurrent());
+  }, [initialTrackId]);
 
   useEffect(() => {
     if (!restored) return;
@@ -269,6 +279,12 @@ export function PlayDeck({
       if (open) next.add(id); else next.delete(id);
       return next;
     });
+  /**
+   * 今の曲。**曲一覧に無い曲（rekordbox から消えた・同期範囲から外れた）でも「今の曲」のまま**にする —
+   * ここで「曲が無い」扱いにすると、最初の1曲を選ぶ一覧に落ち、選んだ途端にセットが作り直されていた。
+   * 見出しは「不明な曲」と出し、「戻す」「曲を変える」はそのまま使える。判定は `currentId` で行い、
+   * `current` は名前・BPM などを引くときだけ使う
+   */
   const current = currentId ? trackById.get(currentId) : undefined;
   /** 曲ID -> 同じ曲の仲間で共通の ID。リミックス違いは同じ値 */
   const songOf = useMemo(
@@ -282,8 +298,8 @@ export function PlayDeck({
   const usedSongs = useMemo(() => new Set(path.map(songOf)), [path, songOf]);
 
   const candidates = useMemo(
-    () => (current ? outgoing.get(current.id) ?? [] : []),
-    [current, outgoing],
+    () => (currentId ? outgoing.get(currentId) ?? [] : []),
+    [currentId, outgoing],
   );
   /** 今の曲へ入ってきた繋ぎ。「曲を変える」で移った曲・最初の1曲は無い（= 頭から流す） */
   const viaId = steps[steps.length - 1]?.viaTransitionId ?? null;
@@ -312,14 +328,14 @@ export function PlayDeck({
    * 「この先◯曲」の探索は一覧の数だけ走るので、今の曲と使った曲が変わるまで使い回す。
    */
   const rows = useMemo(() => {
-    if (!current) return [];
+    if (!currentId) return [];
     const list = open.map((t) => {
       const to = trackById.get(t.toTrackId);
       return {
         transition: t,
         to,
         onward: maxOnwardFrom(usable, songOf, t.toTrackId, usedSongs, timing, timing(t)),
-        tempo: Math.abs(bpmDelta(current.bpm, to?.bpm ?? null) ?? 999),
+        tempo: Math.abs(bpmDelta(current?.bpm ?? null, to?.bpm ?? null) ?? 999),
       };
     });
     list.sort(
@@ -335,15 +351,15 @@ export function PlayDeck({
       length: setLength(row.onward.trackIds, row.onward.edges, lengthLookup, row.transition),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById, lengthLookup, timing]);
+  }, [currentId, current, open.map((t) => t.id).join(","), usedSongs, usable, songOf, trackById, lengthLookup, timing]);
 
   /** 今の曲から先、あと何曲つなげるか（今の曲を含む）。今の曲の songId は起点なので外す */
-  const ahead = current
+  const ahead = currentId
     ? maxOnwardFrom(
         usable,
         songOf,
-        current.id,
-        new Set([...usedSongs].filter((s) => s !== songOf(current.id))),
+        currentId,
+        new Set([...usedSongs].filter((s) => s !== songOf(currentId))),
         timing,
         enteredAt,
       )
@@ -363,22 +379,63 @@ export function PlayDeck({
   /**
    * 下へ送ったら、上に貼り付けた「今かけている曲」を1行に畳む（かけてきた順と数の行を隠す）。
    * 画面の2割を取ったままだと、本番中に次の候補が1枚半しか見えなかった。
-   * 畳む・開くの境目を分けておく（同じ値だと、畳んで縮んだぶん境目をまたいで行ったり来たりする）
+   *
+   * ★ **畳んでも、ページの高さは変えない。** 畳んで縮んだぶん（約100px）だけ見出しの直後に
+   *   空き（`spacerRef`）を足す。高さが変わると、その下の一覧が上へ詰まり、ブラウザのスクロール
+   *   アンカリングや「ページ末尾で scrollY が縮む」で scrollY が動いて境目をまたぎ、
+   *   畳む・開くを行ったり来たりしていた（念のため `<main>` のアンカリングも切っている）。
+   * ★ 境目は**開いたときの見出しの高さ**（測った値）。畳むのはそれより下まで送ったとき、
+   *   開くのはそこから 24px 戻ったとき。畳んでいる間、足した空きは必ず見出しの下に隠れるか
+   *   画面の上へ抜けている（固定の 96px だと、空きが見出しの下に帯として見えた）
    */
   const [compact, setCompact] = useState(false);
+  /** 見出しが出ているか（曲を選ぶ一覧の間は無い）。戻ってきたら見出しを測り直す */
+  const deckShown = !!currentId && !picking;
+  const headerRef = useRef<HTMLElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  /** 開いたときの見出しの高さ。0 = まだ測っていない */
+  const expandedH = useRef(0);
   useEffect(() => {
     const onScroll = () => {
+      // 曲を選ぶ一覧を開いている間は見出しが無い。戻ってきたら開いた形から測り直す
+      if (!headerRef.current) { setCompact(false); return; }
       const y = window.scrollY;
-      setCompact((c) => (c ? y > 24 : y > 96));
+      const full = expandedH.current || 96;
+      setCompact((c) => (c ? y > full - 24 : y > full));
     };
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+  // 描く前に（`useLayoutEffect`）空きの高さを DOM へ直接書く。state を通すと、空きが 0 の
+  // 1コマが挟まってページが縮む = 防ぎたいずれそのものが起きる
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    const spacer = spacerRef.current;
+    if (!header || !spacer) return;
+    const fit = () => {
+      // 測る（= レイアウトが走る）前に、空きを開いたときの高さぶん先に入れておく。
+      // 畳んだ見出しだけでレイアウトが走ると、その瞬間にページが縮み、末尾近くでは
+      // scrollY がページの長さに合わせて切り詰められる（空きを足しても戻らない。実際に 268 → 120 に飛んだ）
+      if (compact) spacer.style.height = `${expandedH.current}px`;
+      const h = header.offsetHeight;
+      if (!compact) {
+        expandedH.current = h;
+        spacer.style.height = "0px";
+      } else {
+        spacer.style.height = `${Math.max(0, expandedH.current - h)}px`;
+      }
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, [compact, deckShown]);
+  // 畳んでいる間はかけてきた順を出さないので、開き直したときにも右端（最新）へ送り直す
   useEffect(() => {
     const el = crumbsRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
-  }, [path]);
+  }, [path, compact]);
 
   // 曲が決まっていない（＝最初の1曲）と、途中で別の曲へ移るときは同じ一覧を出す。
   // 違うのは選んだ結果だけ: 前者は「そこから始める」、後者は「後ろに足す」
@@ -388,7 +445,7 @@ export function PlayDeck({
    * 全曲ぶんの探索は重いので、一覧を開いていて条件が入っているときだけ、条件が変わったら1回走らせる
    * （検索欄の1文字ごとには走らせない。依存に検索語を入れない）
    */
-  const pickerOpen = !current || picking;
+  const pickerOpen = !deckShown;
   const filteredCounts = useMemo(() => {
     if (!pickerOpen || !filtering) return null;
     const max: Record<string, number> = {};
@@ -423,7 +480,7 @@ export function PlayDeck({
     />
   );
 
-  if (!current || picking) {
+  if (!currentId || picking) {
     return (
       <StartPicker
         tracks={tracks}
@@ -442,36 +499,34 @@ export function PlayDeck({
         target={target}
         onTarget={setTarget}
         lengthLookup={lengthLookup}
-        mode={current ? "jump" : "start"}
+        mode={currentId ? "jump" : "start"}
         onPick={(id, route) => {
           setPicking(false);
           // 道筋を開いて「この曲から始める」を押したら、その道筋の繋ぎに「予定」の印を付ける
-          if (route && !current) {
+          if (route && !currentId) {
             writePlan({ ...readPlan(), route });
             setPlanned(new Set(route));
           }
           // 記録に無い繋ぎで移ったときは繋ぎ ID を残さない（履歴でもそう出す）
-          setSteps((p) =>
-            current
+          changeSteps((p) =>
+            currentId
               ? [...p, { trackId: id, viaTransitionId: null }]
               : [{ trackId: id, viaTransitionId: null }],
           );
         }}
-        onCancel={current ? () => setPicking(false) : null}
+        onCancel={currentId ? () => setPicking(false) : null}
       />
     );
   }
 
-  /** 戻るかを確かめている曲の位置。押したあとで曲数が変わっていたら無効（確認を出さない） */
+  /** 戻るかを確かめている曲の位置。かけてきた順が変わると `changeSteps` が取り下げる */
   const backTarget =
-    confirmBack && confirmBack.length === path.length && confirmBack.index < path.length - 1
-      ? confirmBack.index
-      : null;
+    confirmBack !== null && confirmBack < path.length - 1 ? confirmBack : null;
 
   return (
-    <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav sm:px-4 lg:max-w-6xl">
+    <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav [overflow-anchor:none] sm:px-4 lg:max-w-6xl">
       {/* ── 今かけている曲。ここが常に基準なので上に貼り付けておく ── */}
-      <header className={`sticky top-0 z-20 -mx-3 border-b border-border bg-bg/90 px-3 backdrop-blur-md ${compact ? "py-1.5" : "pb-3 pt-3"} sm:-mx-4 sm:px-4`}>
+      <header ref={headerRef} className={`sticky top-0 z-20 -mx-3 border-b border-border bg-bg/90 px-3 backdrop-blur-md ${compact ? "py-1.5" : "pb-3 pt-3"} sm:-mx-4 sm:px-4`}>
         <div className={`pr-corner flex gap-2 ${compact ? "items-center" : "items-start"}`}>
           <div className="min-w-0 flex-1">
             {!compact && <span className="label">{performing ? "本番 · 今かけている曲" : "今かけている曲"}</span>}
@@ -483,17 +538,19 @@ export function PlayDeck({
               className={`inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-card border border-hot/50 bg-hot/12 px-3 ${compact ? "py-1" : "mt-1 py-1.5"}`}
             >
               <span className={`min-w-0 break-words font-bold leading-tight text-hot ${compact ? "text-[15px]" : "text-[17px]"}`}>
-                {current.name}
+                {current?.name ?? "不明な曲"}
               </span>
-              <span className="shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums text-hot/80">
-                {current.bpm ?? "–"}{current.musicalKey && ` ${current.musicalKey}`}
-              </span>
+              {current && (
+                <span className="shrink-0 whitespace-nowrap font-mono text-[13px] tabular-nums text-hot/80">
+                  {current.bpm ?? "–"}{current.musicalKey && ` ${current.musicalKey}`}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex shrink-0 gap-1.5">
             {path.length > 1 && (
               <button
-                onClick={() => setSteps((p) => p.slice(0, -1))}
+                onClick={() => changeSteps((p) => p.slice(0, -1))}
                 className="btn"
               >
                 戻す
@@ -516,10 +573,10 @@ export function PlayDeck({
               <span key={`${id}-${i}`} className="shrink-0">
                 {i > 0 && <span className="mx-1">→</span>}
                 <button
-                  onClick={() => { setConfirmReset(false); setConfirmBack({ index: i, length: path.length }); }}
+                  onClick={() => { setConfirmReset(false); setConfirmBack(i); }}
                   className={backTarget === i ? "text-warn" : "hover:text-fg-muted"}
                 >
-                  {trackById.get(id)?.name ?? "?"}
+                  {trackById.get(id)?.name ?? "不明な曲"}
                 </button>
               </span>
             ))}
@@ -545,7 +602,7 @@ export function PlayDeck({
             </p>
             <div className="mt-2.5 flex gap-2">
               <button
-                onClick={() => { setSteps((s) => s.slice(0, backTarget + 1)); setConfirmBack(null); }}
+                onClick={() => changeSteps((s) => s.slice(0, backTarget + 1))}
                 className="btn btn-warn flex-1 rounded-card px-4 text-[14px] font-semibold"
               >
                 戻る
@@ -566,7 +623,8 @@ export function PlayDeck({
             {/* 探索を打ち切ったときの数は下限（カードの「◯曲以上」と同じ断り方） */}
             {remaining > 1 ? `この先 最大${remaining}曲${ahead?.truncated ? "以上" : ""}` : "行き止まり"}
           </span>
-          {aheadLength && (
+          {/* 今の曲が不明なら長さは数えられない（0分と出さない） */}
+          {current && aheadLength && (
             <span title="今の曲（入った位置から）を含めて、この先の一番長い道筋を最後まで流した長さ。括弧は曲を頭から最後まで流した場合">
               残り{minutesLabel(aheadLength.cutSec)}（全長{minutesLabel(aheadLength.fullSec).replace("約", "")}）
             </span>
@@ -581,12 +639,16 @@ export function PlayDeck({
           <span className="ml-auto">{filterButton}</span>
         </p>
       </header>
+      {/* 畳んで縮んだぶんの空き（上の compact の説明）。開いているときは 0 */}
+      <div ref={spacerRef} aria-hidden />
 
       {filterPanel}
 
       {rows.length === 0 ? (
         <p className="mt-8 rounded-card border border-border bg-surface p-5 text-[14px] text-fg-muted">
-          {candidates.length === 0
+          {!current
+            ? "この曲は曲一覧に見つかりません（rekordbox から消えたか、同期の範囲から外れました）。かけてきた順には残しています。"
+            : candidates.length === 0
             ? "この曲から繋げる先はまだ記録されていません。"
             : unplayed.length > 0
               ? `まだかけていない曲への繋ぎが${unplayed.length}本ありますが、どれも除外条件で外れています。`
@@ -615,7 +677,7 @@ export function PlayDeck({
                 style={{ boxShadow: "var(--shadow-card)" }}
               >
                 <button
-                  onClick={() => setSteps((p) => [...p, { trackId: t.toTrackId, viaTransitionId: t.id }])}
+                  onClick={() => changeSteps((p) => [...p, { trackId: t.toTrackId, viaTransitionId: t.id }])}
                   className="flex w-full flex-col gap-2 rounded-card p-2.5 text-left sm:flex-row sm:gap-4 sm:p-4"
                 >
                   {/*
@@ -628,12 +690,13 @@ export function PlayDeck({
                     <span className="min-w-0 basis-full rounded-card border border-accent/45 bg-accent/10 px-2.5 py-1 text-left text-[15px] font-semibold leading-snug break-words text-accent sm:w-full sm:basis-auto sm:text-right">
                       {to?.name ?? "不明な曲"}
                     </span>
-                    <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+                    <span className="whitespace-nowrap font-mono text-[13px] tabular-nums text-fg-subtle">
                       {to?.bpm ?? "–"} {to?.musicalKey}
                     </span>
-                    <TempoBadge from={current.bpm} to={to?.bpm ?? null} />
+                    <TempoBadge from={current?.bpm ?? null} to={to?.bpm ?? null} />
+                    <KeyMatchBadge from={current?.musicalKey} to={to?.musicalKey} />
                     <span
-                      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[11px] tabular-nums ${
+                      className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[12px] tabular-nums ${
                         n.count > 1
                           ? "border-hot/35 bg-hot/10 text-hot"
                           : "border-border text-fg-subtle"
@@ -647,7 +710,7 @@ export function PlayDeck({
                     </span>
                     {planned.has(t.id) && (
                       <span
-                        className="rounded border border-accent/45 bg-accent/10 px-1.5 py-0.5 text-[10.5px] text-accent"
+                        className="rounded border border-accent/45 bg-accent/10 px-1.5 py-0.5 text-[12px] text-accent"
                         title="「セットを組む」で出した道筋の繋ぎ"
                       >
                         予定
@@ -656,7 +719,7 @@ export function PlayDeck({
                     {/* 本番中はトグルを出さないので、印だけここに出す。
                         下見中は下の帯のトグルが同じことを言うので重ねない */}
                     {t.practice && performing && (
-                      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[10.5px] text-warn">
+                      <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[12px] text-warn">
                         要練習
                       </span>
                     )}
@@ -755,7 +818,7 @@ export function PlayDeck({
             </span>
             <button
               onClick={() => {
-                setConfirmReset(false); archive(steps); setSteps([]);
+                setConfirmReset(false); archive(steps); changeSteps([]);
                 // セットを終えたら、組んだ道筋の「予定」も終わり（選んだ曲は残す）
                 writePlan({ ...readPlan(), route: [] }); setPlanned(new Set());
               }}
@@ -798,6 +861,7 @@ export function PlayDeck({
  *
  * 並べ替えに使うのは `maxFrom`（サーバで計算済み）だけ。ここで本番用に数え直すと
  * 全曲ぶんの探索が1文字打つたびに走るので、一覧では使わない。
+ * 長さ指定があるときだけは、右に出す数と同じ「枠で切った後の曲数 → 長さ」で並べる。
  */
 function StartPicker({
   tracks, maxFrom, truncated, filterButton, filterPanel,
@@ -863,8 +927,12 @@ function StartPicker({
   }, [tracks, maxRoute, transitionById, lengthLookup, target, targeting]);
   /** 開ける道筋があるか（枠で切った結果、1曲だけになったら開くものが無い） */
   const hasRoute = (id: string) => (fitted.get(id)?.edges.length ?? 0) > 0;
-  /** 枠で外した曲のうち、道筋を持っていた曲の数（繋ぎの無い曲まで数えると、毎回ほぼ全曲になって読めない） */
+  /**
+   * 枠で外した曲を、道筋を持っていた曲と繋ぎの無い曲に分けて数える（文言を実際に起きたことに合わせる）。
+   * 繋ぎの無い曲は「1曲だけ」の道筋なので、「◯曲以上」「◯分以上」が入っていなければ外れない
+   */
   const hiddenByTarget = targeting ? tracks.filter((t) => maxRoute[t.id] && !fitted.get(t.id)).length : 0;
+  const hiddenLoners = targeting ? tracks.filter((t) => !maxRoute[t.id] && !fitted.get(t.id)).length : 0;
   const shown = useMemo(() => {
     const query = q.trim().toLowerCase();
     const words = query.split(/\s+/).filter(Boolean);
@@ -878,7 +946,12 @@ function StartPicker({
         (a, b) =>
           Number(usedSongs.has(a.songId)) - Number(usedSongs.has(b.songId)) ||
           Number(skipsTrack(a)) - Number(skipsTrack(b)) ||
-          (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1) ||
+          // 長さ指定があるときは、右に出している数（枠で切った後の曲数 → 長さ）で並べる。
+          // 切る前の「最大◯曲」で並べると、画面の数と並びが食い違う
+          (targeting
+            ? (fitted.get(b.id)?.songs ?? 0) - (fitted.get(a.id)?.songs ?? 0) ||
+              (fitted.get(b.id)?.cutSec ?? 0) - (fitted.get(a.id)?.cutSec ?? 0)
+            : (maxFrom[b.id] ?? 1) - (maxFrom[a.id] ?? 1)) ||
           a.name.localeCompare(b.name, "ja"),
       );
   }, [q, tracks, maxFrom, usedSongs, skipsTrack, targeting, fitted]);
@@ -940,9 +1013,14 @@ function StartPicker({
         <TargetPanel target={target} onChange={onTarget} onClose={() => setTargetOpen(false)} />
       )}
       {filterPanel}
-      {hiddenByTarget > 0 && (
+      {(hiddenByTarget > 0 || hiddenLoners > 0) && (
         <p className="mt-2 text-[12px] text-fg-subtle">
-          「{targetLabel(target)}」に収まらない{hiddenByTarget}曲と、繋ぎの無い曲を外しています。
+          「{targetLabel(target)}」に収まらない
+          {[
+            hiddenByTarget > 0 && `${hiddenByTarget}曲`,
+            hiddenLoners > 0 && `繋ぎの無い${hiddenLoners}曲`,
+          ].filter(Boolean).join("と、")}
+          を外しています。
         </p>
       )}
       <input
@@ -974,12 +1052,12 @@ function StartPicker({
                 {t.name}
                 {/* 使い切りにする曲でも選べるようにはしておく（本番で戻すこともある）。印だけ付けて後ろへ */}
                 {usedSongs.has(t.songId) && (
-                  <span className="ml-2 inline-block whitespace-nowrap rounded border border-border px-1.5 py-0.5 align-middle text-[10.5px] text-fg-subtle">
+                  <span className="ml-2 inline-block whitespace-nowrap rounded border border-border px-1.5 py-0.5 align-middle text-[12px] text-fg-subtle">
                     {playedIds.has(t.id) ? "かけた" : "別版をかけた"}
                   </span>
                 )}
                 {!usedSongs.has(t.songId) && skipsTrack(t) && (
-                  <span className="ml-2 inline-block whitespace-nowrap rounded border border-warn/40 px-1.5 py-0.5 align-middle text-[10.5px] text-warn">
+                  <span className="ml-2 inline-block whitespace-nowrap rounded border border-warn/40 px-1.5 py-0.5 align-middle text-[12px] text-warn">
                     除外中
                   </span>
                 )}
@@ -994,7 +1072,7 @@ function StartPicker({
               disabled={!hasRoute(t.id)}
               aria-expanded={openId === t.id}
               title="押すと、この数を出した道筋が開きます"
-              className="tap flex w-[6.25rem] shrink-0 flex-col items-end justify-center gap-0.5 whitespace-nowrap py-1.5 pl-1 pr-3.5 text-right font-mono text-[11px] tabular-nums"
+              className="tap flex w-[7.5rem] shrink-0 flex-col items-end justify-center gap-0.5 whitespace-nowrap py-1.5 pl-1 pr-3.5 text-right font-mono text-[12px] tabular-nums"
             >
                 {targeting ? (
                   // 長さ指定があるときは、枠に収まるところで切った道筋の曲数と長さ（カット後）

@@ -90,7 +90,7 @@ export function RatingPicker({
           </button>
         );
       })}
-      {failed && <span className="ml-1.5 text-[11px] text-warn">保存できず</span>}
+      {failed && <span className="ml-1.5 text-[13px] text-warn">保存できず</span>}
     </span>
   );
 }

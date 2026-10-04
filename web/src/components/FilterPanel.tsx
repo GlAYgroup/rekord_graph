@@ -136,7 +136,7 @@ function SkipChips({
             className={`btn px-3 text-[13px] ${off ? "btn-warn line-through" : ""}`}
           >
             {g.label}
-            <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">{g.count}</span>
+            <span className="ml-1 font-mono text-[12px] tabular-nums opacity-70">{g.count}</span>
           </button>
         );
       })}

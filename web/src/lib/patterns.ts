@@ -1,5 +1,5 @@
 import "server-only";
-import { DB, request, text, type NotionPage } from "./notion";
+import { DB, isNotFound, queryAll, request, text, type NotionPage } from "./notion";
 
 /**
  * グラフの配置パターン（「パターン1」「パターン2」…）の保存と読み出し。
@@ -52,12 +52,9 @@ function toPattern(page: NotionPage): Pattern {
 
 /** 新しく保存したものが先頭。アプリはこの先頭を既定の形として開く */
 export async function listPatterns(): Promise<Pattern[]> {
-  const res = await request<{ results: NotionPage[] }>(`/databases/${DB.layouts}/query`, {
-    method: "POST",
-    body: { page_size: 50, sorts: [{ timestamp: "last_edited_time", direction: "descending" }] },
-    fresh: true,
-  });
-  return res.results.map(toPattern);
+  // 全ページ読む（1ページで切ると、51個目より古いパターンが一覧から消え、名前の重なりも見落とす）
+  const pages = await queryAll(DB.layouts, true, [{ timestamp: "last_edited_time", direction: "descending" }]);
+  return pages.map(toPattern);
 }
 
 /** Notion の ID はダッシュの有無・大文字小文字が揺れるので、揃えてから比べる */
@@ -70,9 +67,28 @@ const normId = (id: string) => id.replace(/-/g, "").toLowerCase();
  */
 async function isLayoutPage(id: string): Promise<boolean> {
   const page = await request<{ parent?: { database_id?: string }; archived?: boolean }>(
-    `/pages/${id}`, { fresh: true },
-  ).catch(() => null);
+    `/pages/${encodeURIComponent(id)}`, { fresh: true },
+  ).catch((e) => {
+    // 「無い」と言い切れるときだけ「違う」に倒す。混んでいる（429）・回線の失敗は投げ直す
+    // （false にすると API が 404 を返し、画面は消されたパターンだと思って自動配置へ戻る）
+    if (isNotFound(e)) return null;
+    throw e;
+  });
   return !!page && !page.archived && normId(page.parent?.database_id ?? "") === normId(DB.layouts);
+}
+
+/**
+ * 他のパターンが使っていない名前にする（`パターン3` が既にあれば `パターン3 (2)`）。
+ * 名前で選ぶ画面なので、同じ名前が2つあるとどちらを開くのか分からない。画面は手元の一覧から
+ * 「次の名前」を決めるので、他の端末で作られた分や、作成の返事を待つ間の2回目の保存で重なりうる
+ */
+export async function freeName(name: string, exceptId?: string): Promise<string> {
+  const taken = new Set((await listPatterns()).filter((p) => p.id !== exceptId).map((p) => p.name));
+  if (!taken.has(name)) return name;
+  for (let i = 2; ; i++) {
+    const candidate = `${name} (${i})`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 function properties(name: string, positions: Pattern["positions"]) {
@@ -93,7 +109,8 @@ export async function savePattern(
   id?: string,
 ): Promise<Pattern | null> {
   if (id && !(await isLayoutPage(id))) return null;
-  const props = properties(name, positions);
+  // 新規だけ名前の重なりを避ける（上書きは今の名前のまま書く）
+  const props = properties(id ? name : await freeName(name), positions);
   const page = id
     ? await request<NotionPage>(`/pages/${id}`, { method: "PATCH", body: { properties: props }, fresh: true })
     : await request<NotionPage>("/pages", {
@@ -111,7 +128,7 @@ export async function savePattern(
  */
 export async function renamePattern(id: string, name: string): Promise<Pattern | null> {
   if (!(await isLayoutPage(id))) return null;
-  const page = await request<NotionPage>(`/pages/${id}`, {
+  const page = await request<NotionPage>(`/pages/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: { properties: { 名前: { title: [{ type: "text", text: { content: name.slice(0, 100) } }] } } },
     fresh: true,

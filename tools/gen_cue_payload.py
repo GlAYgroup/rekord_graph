@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""data/rekordbox.json -> Notion 📍Cues への投入ペイロード（バッチ分割）。
+"""曲の短縮名（`build_short_names`）と位置の表示（`ms_to_str`）。sync.py が使う。
 
 キューのタイトルは「短縮名 / 記号「キュー名」」。
 Notion のリレーション選択はタイトルの部分一致で絞れるので、
 Transitions で曲名を打てばその曲のキューだけが並ぶ。
+
+以前はここに data/rekordbox.json から 📍Cues への投入ペイロードを作る main があったが、
+投入は sync.py が行うようになったので外した（ファイル名は import 元が多いのでそのまま）。
 """
-import json, re, sys
+import json, re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,9 +22,6 @@ def _json(path: Path, default):
 
 # 曲名の別名（rekordbox タイトルに含まれる文字列 -> 短い呼び名）。無ければ原題を刈り込むだけ
 ALIASES = {k: v for k, v in _json(ROOT / "data/aliases.json", {}).items() if not k.startswith("_")}
-IDS = _json(ROOT / "data/notion_track_ids.json", {})
-# 投入済みの cueUUID。二重投入を防ぐ（UUID は不変なので、これが唯一の確実な判定材料）
-LOADED = set(_json(ROOT / "data/loaded_cue_uuids.json", []))
 
 
 def base_name(title: str) -> str:
@@ -119,40 +119,3 @@ def ms_to_str(ms: int) -> str:
     m, s = divmod(s, 60)
     return f"{m}:{s:02d}.{msec:03d}"
 
-
-def main() -> int:
-    start = int(sys.argv[1]) if len(sys.argv) > 1 else 0
-    count = int(sys.argv[2]) if len(sys.argv) > 2 else 78
-
-    tracks = json.loads((ROOT / "data/rekordbox.json").read_text(encoding="utf-8"))["tracks"]
-    names = build_short_names(tracks)
-
-    rows = []
-    for t in tracks:
-        page = IDS.get(t["id"])
-        if not page:
-            print(f"# 未投入の曲をスキップ: {t['title']}", file=sys.stderr)
-            continue
-        sn = names[t["id"]]
-        for c in t["cues"]:
-            if c["kind"] != "hot":
-                continue  # メモリーキューは全てホットキューと同位置なので重複させない
-            if c["uuid"] in LOADED:
-                continue
-            label = f"{sn} / {c['letter']}「{c['name']}」" if c["name"] else f"{sn} / {c['letter']}（無名）"
-            rows.append({"properties": {
-                "キュー": label, "曲": [page], "記号": c["letter"], "キュー名": c["name"],
-                "位置": ms_to_str(c["positionMs"]), "位置ms": c["positionMs"],
-                "種別": "Hot", "cueUUID": c["uuid"],
-                # ループかどうかは押し方が変わる情報なので、曲ページ・グラフにも出す
-                "ループ": bool(c.get("loop")), "ループ終ms": c.get("loopEndMs"),
-            }})
-
-    chunk = rows[start:start + count]
-    print(f"# 全{len(rows)}件 / {start}..{start + len(chunk)} を出力 (残り {max(0, len(rows) - start - len(chunk))})", file=sys.stderr)
-    print(json.dumps(chunk, ensure_ascii=False))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

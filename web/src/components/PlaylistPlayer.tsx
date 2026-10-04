@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { HopDetails } from "./HopDetails";
+import { HopDetails, KeyMatchBadge } from "./HopDetails";
 import { usePerformance } from "./PerformanceMode";
 import { TempoBadge } from "./TempoBadge";
 import { alignHops, type Playlist } from "@/lib/playlist";
@@ -77,7 +77,7 @@ export function PlaylistPlayer({
                 {nameOf(items[pos])}
               </span>
               {current && (
-                <span className="shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums text-hot/80">
+                <span className="shrink-0 whitespace-nowrap font-mono text-[13px] tabular-nums text-hot/80">
                   {current.bpm ?? "–"}{current.musicalKey && ` ${current.musicalKey}`}
                 </span>
               )}
@@ -103,10 +103,11 @@ export function PlaylistPlayer({
             <span className="min-w-0 basis-full rounded-card border border-accent/45 bg-accent/10 px-2.5 py-1.5 text-[15px] font-semibold leading-snug break-words text-accent">
               {nameOf(items[pos + 1])}
             </span>
-            <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+            <span className="whitespace-nowrap font-mono text-[13px] tabular-nums text-fg-subtle">
               {next?.bpm ?? "–"} {next?.musicalKey}
             </span>
             <TempoBadge from={current?.bpm ?? null} to={next?.bpm ?? null} />
+            <KeyMatchBadge from={current?.musicalKey} to={next?.musicalKey} />
           </div>
           <div className="mt-3">
             {hop ? (
@@ -160,7 +161,7 @@ export function PlaylistPlayer({
                 i === pos ? "bg-hot/12" : i === pos + 1 ? "bg-accent/8" : ""
               }`}
             >
-              <span className="w-6 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-subtle">{i + 1}</span>
+              <span className="w-6 shrink-0 text-right font-mono text-[12px] tabular-nums text-fg-subtle">{i + 1}</span>
               <span
                 className={`min-w-0 flex-1 break-words text-[14px] ${
                   i < pos ? "text-fg-subtle" : i === pos ? "font-semibold text-hot" : i === pos + 1 ? "text-accent" : "text-fg"
@@ -168,7 +169,7 @@ export function PlaylistPlayer({
               >
                 {nameOf(rb)}
               </span>
-              {i < last && !hops[i] && <span className="shrink-0 text-[11px] text-warn">次へ繋ぎなし</span>}
+              {i < last && !hops[i] && <span className="shrink-0 text-[12px] text-warn">次へ繋ぎなし</span>}
             </li>
           ))}
         </ol>

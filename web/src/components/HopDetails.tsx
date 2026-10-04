@@ -2,6 +2,7 @@ import { CueLine } from "./CuePad";
 import { TrackTimeline } from "./TrackTimeline";
 import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import { barsLabel, cueLabel, cueOf } from "@/lib/format";
+import { KEY_MATCH_LABEL, KEY_MATCH_TITLE, keyMatch } from "@/lib/key";
 import type { Cue, Track, Transition } from "@/lib/types";
 
 /**
@@ -55,17 +56,17 @@ export function HopDetails({
           <div className="flex flex-wrap items-center gap-2">
             {/* 除外条件の根拠が画面に無いと、なぜ残ったか読めない */}
             {t.difficulty && (
-              <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+              <span className="rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-muted">
                 {DIFFICULTY_LABEL[t.difficulty as Difficulty] ?? t.difficulty}
               </span>
             )}
-            {showRating && t.rating && <span className="text-[11.5px] text-warn">{t.rating}</span>}
+            {showRating && t.rating && <span className="text-[12px] text-warn">{t.rating}</span>}
             {t.technique && (
-              <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
+              <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
                 {t.technique}
               </span>
             )}
-            {bars && <span className="text-[11.5px] tabular-nums text-fg-subtle">{bars}</span>}
+            {bars && <span className="text-[12px] tabular-nums text-fg-subtle">{bars}</span>}
           </div>
           {/* メモは**省略しない**。改行もそのまま出す（プレイ中に読む本文） */}
           {t.comment && (
@@ -74,5 +75,24 @@ export function HopDetails({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 今の曲 → 行き先のキーの相性（`キー◎` / `キー○` / `キー×`。判定は `lib/key.ts`）。
+ * テンポ差（`TempoBadge`）の隣に置く。**色は付けない**（DESIGN.md: キーで色分けしない）ので、
+ * 難易度の札と同じ中立の枠で文字だけ出す。どちらかのキーが読めなければ何も出さない
+ * （未入力を「合わない」と言わない）
+ */
+export function KeyMatchBadge({ from, to }: { from: string | null | undefined; to: string | null | undefined }) {
+  const m = keyMatch(from, to);
+  if (!m) return null;
+  return (
+    <span
+      className="whitespace-nowrap rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-muted"
+      title={KEY_MATCH_TITLE[m]}
+    >
+      {KEY_MATCH_LABEL[m]}
+    </span>
   );
 }

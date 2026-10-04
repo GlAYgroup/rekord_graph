@@ -199,7 +199,7 @@ def main() -> int:
         print(f"  NOTION_DB_{k.upper()}={v}")
     print()
     print("次は rekordbox のキューを流し込みます:")
-    print("  ./.venv/bin/python tools/rb_export.py && ./.venv/bin/python tools/sync.py --dry-run")
+    print("  ./.venv/bin/python tools/sync.py --dry-run   # 差分を見る（sync が master.db を直接読む）")
     return 0
 
 

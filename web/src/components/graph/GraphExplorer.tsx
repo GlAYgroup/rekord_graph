@@ -350,14 +350,22 @@ export function GraphExplorer({
     setActiveId(id); activeIdRef.current = id;
   }, []);
 
-  /** `id` を渡すと上書き、渡さないと「パターンN」を新規作成 */
-  const savePattern = useCallback(async (id?: string) => {
+  /**
+   * `id` を渡すと上書き、渡さないと「パターンN」を新規作成。保存できた行の ID を返す（失敗は null）。
+   * `snap` は送る形と、そのとき開いていたパターン。自動保存は順番待ちの間に切り替えられうるので、
+   * 呼んだ時点の分を渡す（省けば今の画面）
+   */
+  const savePattern = useCallback(async (
+    id?: string,
+    snap?: { positions: GPattern["positions"]; startedOn: string | null },
+  ): Promise<string | null> => {
     /*
       返事が届くまでに別のパターン（や自動）へ切り替えられたら、そちらの選択を残す。
       保存した側へ選択だけ戻すと、画面は切り替え先の形のままなので、次のドラッグで
       その形が保存した側のパターンに上書きされる（ボタンの点灯も嘘になる）
     */
-    const startedOn = activeIdRef.current;
+    const startedOn = snap ? snap.startedOn : activeIdRef.current;
+    const positions = snap ? snap.positions : currentPositions();
     setBusy(true); setSaveError(null);
     try {
       const name = (id && patternsRef.current.find((p) => p.id === id)?.name)
@@ -365,13 +373,15 @@ export function GraphExplorer({
       const res = await fetch("/api/layouts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, name, positions: currentPositions() }),
+        body: JSON.stringify({ id, name, positions }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
       adopt(data.patterns, activeIdRef.current === startedOn ? data.pattern.id : activeIdRef.current);
+      return data.pattern.id as string;
     } catch {
       setSaveError("保存できませんでした");
+      return null;
     } finally {
       setBusy(false);
     }
@@ -417,7 +427,38 @@ export function GraphExplorer({
    */
   const savePatternRef = useRef(savePattern);
   savePatternRef.current = savePattern;
+  const currentPositionsRef = useRef(currentPositions);
+  useEffect(() => { currentPositionsRef.current = currentPositions; }, [currentPositions]);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * 自動保存は1本ずつ順に送る（`saveQueueRef` に繋ぐ）。並べて送ると、自動配置の上で
+   * 続けて動かしたとき、1回目の作成の返事が届く前の2回目も「開いているパターンが無い」と見て
+   * 同じ名前のパターンをもう1つ作っていた。同じパターンへの上書きも、届く順が入れ替わると古い形が残る
+   */
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  /** 自動配置の上からの保存（= 作成）。返事を待つ間の次の保存は、作られた行へ上書きする */
+  const creatingRef = useRef<Promise<string | null> | null>(null);
+  const queueAutoSave = useCallback((): Promise<string | null> => {
+    // 送る中身（形・保存先）は呼んだ時点で決める。切り替えの直前にも呼ばれるので、
+    // 順番が来てから読むと、切り替え先の形を書いてしまう
+    const snap = { positions: currentPositionsRef.current(), startedOn: activeIdRef.current };
+    const id = activeIdRef.current;
+    const pendingCreate = id === null ? creatingRef.current : null;
+    const run = saveQueueRef.current.then(async () => {
+      // 前の作成が作った行があればそこへ。作成が失敗していれば、これが作る
+      const target = id ?? (pendingCreate ? await pendingCreate : null);
+      return savePatternRef.current(target ?? undefined, snap);
+    });
+    saveQueueRef.current = run.catch(() => null);
+    if (id === null) {
+      creatingRef.current = run;
+      // 返事が届けば、次からは開いたパターンの ID で呼ばれる。残すと、後で自動配置に戻って
+      // 動かしたときに、作ったパターンを上書きしてしまう
+      const clear = () => { if (creatingRef.current === run) creatingRef.current = null; };
+      void run.then(clear, clear);
+    }
+    return run;
+  }, []);
   const [autoSavedAt, setAutoSavedAt] = useState(0);
   /** 開いたあとで配置パターンを Notion から取り直し終えたか（下の「取り直し」を参照） */
   const layoutsFreshRef = useRef(false);
@@ -426,27 +467,30 @@ export function GraphExplorer({
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     // 連続でドラッグしている間は書かない。手が止まってから1回だけ
     const fire = async () => {
+      // 発火したら控えを空にする。残すと、後の切り替え・画面を離れるときの flushAutoSave が
+      // 「待機中」と見て同じ保存をもう一度送り、消したパターンの後なら新しいパターンまで作っていた
+      autoSaveTimer.current = null;
       // 取り直す前の（古いかもしれない）形では書かない。届くまで待つ
       if (!layoutsFreshRef.current) { autoSaveTimer.current = setTimeout(fire, 400); return; }
-      await savePatternRef.current(activeIdRef.current ?? undefined);
+      await queueAutoSave();
       setAutoSavedAt(Date.now());
     };
     autoSaveTimer.current = setTimeout(fire, 1200);
-  }, []);
+  }, [queueAutoSave]);
   /**
    * 待機中の自動保存を今すぐ送る。**パターンを切り替える前と、画面を離れるとき**に呼ぶ。
    * 待たせたまま切り替えると、1.2秒後の保存が「切り替え先のパターン」に切り替え先の形を
    * 書き（動かした分は元のパターンに残らない）、自動へ切り替えた場合は自動配置の形で
    * 新しいパターンまで作っていた。離れるときは黙って捨てていた。
-   * 送る中身（形・保存先）は、呼んだ時点で組み立てられる（savePattern は await の前に読む）
+   * 送る中身（形・保存先）は、呼んだ時点で組み立てられる（queueAutoSave がその場で控える）
    */
   const flushAutoSave = useCallback(() => {
     if (!autoSaveTimer.current) return;
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = null;
     if (!layoutsFreshRef.current) return; // 取り直す前の形は書かない（古い画面データかもしれない）
-    void savePatternRef.current(activeIdRef.current ?? undefined);
-  }, []);
+    void queueAutoSave();
+  }, [queueAutoSave]);
   useEffect(() => () => flushAutoSave(), [flushAutoSave]);
 
   const loadPattern = useCallback((id: string) => {
@@ -558,6 +602,12 @@ export function GraphExplorer({
   const removePattern = useCallback(async (id: string) => {
     const p = patternsRef.current.find((x) => x.id === id);
     if (!window.confirm(`${p?.name ?? "このパターン"} を削除しますか？`)) return;
+    // 待機中の自動保存は捨てる。残すと、消した後の切り替え・画面を離れるときに送られ、
+    // 開いているパターンが無い（自動配置に戻った）ので「パターンN」を新しく作ってしまう
+    if (autoSaveTimer.current) {
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = null;
+    }
     setBusy(true); setSaveError(null);
     try {
       const res = await fetch(`/api/layouts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -1284,9 +1334,9 @@ export function GraphExplorer({
                     >
                       <span className="min-w-0 flex-1 text-[14px] break-words">{n.name}</span>
                       {!connectedIds.has(n.id) && (
-                        <span className="shrink-0 whitespace-nowrap text-[11px] text-fg-subtle">未接続</span>
+                        <span className="shrink-0 whitespace-nowrap text-[12px] text-fg-subtle">未接続</span>
                       )}
-                      <span className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+                      <span className="shrink-0 whitespace-nowrap font-mono text-[13px] tabular-nums text-fg-subtle">
                         {n.bpm ?? "–"} BPM
                       </span>
                     </button>
@@ -1403,7 +1453,7 @@ export function GraphExplorer({
           >
             {layoutBusy ? "計算中…" : "配置を更新"}
           </button>
-          {layoutNote && <span className="basis-full text-[11.5px] text-fg-subtle">{layoutNote}</span>}
+          {layoutNote && <span className="basis-full text-[12px] text-fg-subtle">{layoutNote}</span>}
           <button
             data-edit
             onClick={() => savePattern()}
@@ -1554,12 +1604,12 @@ export function GraphExplorer({
               <span className="flex items-start gap-2">
                 <span className="min-w-0 flex-1">
                   <h2 className="text-[16px] font-bold leading-tight break-words md:text-[18px]">{sel.name}</h2>
-                  <span className="mt-0.5 block font-mono text-[12px] tabular-nums text-fg-muted">
+                  <span className="mt-0.5 block font-mono text-[13px] tabular-nums text-fg-muted">
                     {sel.bpm ?? "–"} BPM{sel.musicalKey && ` · ${sel.musicalKey}`}
                     <span className="text-hot"> · 最大{routes[sel.id]?.trackIds.length ?? sel.maxFrom}曲</span>
                   </span>
                 </span>
-                <span aria-hidden className="mt-0.5 shrink-0 text-[11px] text-fg-subtle md:hidden">
+                <span aria-hidden className="mt-0.5 shrink-0 text-[12px] text-fg-subtle md:hidden">
                   {sheetOpen ? "▼" : "▲"}
                 </span>
               </span>
@@ -1632,7 +1682,7 @@ export function GraphExplorer({
                             <span className="min-w-0 flex-1 break-words">
                               {dir === "out" ? "▸ " : "◂ "}{t.otherName}
                             </span>
-                            <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[11px] tabular-nums">
+                            <span className="flex shrink-0 flex-col items-end gap-0.5 font-mono text-[12px] tabular-nums">
                               <span className="text-fg-subtle">
                                 {t.otherBpm ?? "–"}
                                 <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
@@ -1645,11 +1695,11 @@ export function GraphExplorer({
                               </span>
                             </span>
                           </span>
-                          <span className="block font-mono text-[11px] text-fg-subtle break-words">
+                          <span className="block font-mono text-[12px] text-fg-subtle break-words">
                             {t.fromCue} → {t.toCue}
                           </span>
                           {(t.technique || barsLabel(t, t.toCue)) && (
-                            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px]">
+                            <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px]">
                               {t.technique && <span className="text-fg-muted">{t.technique}</span>}
                               {barsLabel(t, t.toCue) && (
                                 <span className="tabular-nums text-fg-subtle">{barsLabel(t, t.toCue)}</span>
@@ -1676,7 +1726,7 @@ export function GraphExplorer({
                             <PracticeToggle id={t.id} value={t.practice} refresh={false} />
                             <Link
                               href={`/new?edit=${t.id}`}
-                              className="btn px-3 text-[11.5px]"
+                              className="btn px-3 text-[12px]"
                               title="この繋ぎのキュー・種類・コメントを直す"
                             >
                               編集

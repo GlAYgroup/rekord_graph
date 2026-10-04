@@ -479,7 +479,7 @@ export function TransitionForm({
           <span className="label">小節数 · TO のキューから何小節ずらして始めるか</span>
           <div className="mt-1.5 flex flex-wrap gap-3">
             <label className="flex-1 min-w-[140px]">
-              <span className="text-[11.5px] text-fg-subtle">何小節<b className="text-fg-muted">前</b>から</span>
+              <span className="text-[12px] text-fg-subtle">何小節<b className="text-fg-muted">前</b>から</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -491,7 +491,7 @@ export function TransitionForm({
               />
             </label>
             <label className="flex-1 min-w-[140px]">
-              <span className="text-[11.5px] text-fg-subtle">何小節<b className="text-fg-muted">後</b>から</span>
+              <span className="text-[12px] text-fg-subtle">何小節<b className="text-fg-muted">後</b>から</span>
               <input
                 type="number"
                 inputMode="numeric"
@@ -505,15 +505,15 @@ export function TransitionForm({
           </div>
           {/* 意味の取り違えがいちばん怖い項目なので、読み下した文をその場で返す */}
           {barsSentence && (
-            <span className="mt-1 block text-[11.5px] text-fg-subtle">{barsSentence}</span>
+            <span className="mt-1 block text-[12px] text-fg-subtle">{barsSentence}</span>
           )}
           {!toCue && (
-            <span className="mt-1 block text-[11px] text-fg-subtle">
+            <span className="mt-1 block text-[12px] text-fg-subtle">
               TO のキューを選ぶと入れられます（何小節ずらすかの基準になるため）。
             </span>
           )}
           {(bars !== "" || barsAfter !== "") && (
-            <span className="mt-1 block text-[11px] text-fg-subtle">
+            <span className="mt-1 block text-[12px] text-fg-subtle">
               入るのはどちらか片方です。入れ直すときは、入っている方を空にしてください。
             </span>
           )}
@@ -695,7 +695,7 @@ export function TransitionForm({
                   {r.from}<Bpm value={r.fromBpm} /> <span className="text-hot">→</span> {r.to}
                   <Bpm value={r.toBpm} />
                 </span>
-                <span className="block font-mono text-[11.5px] text-fg-subtle break-words">
+                <span className="block font-mono text-[12px] text-fg-subtle break-words">
                   {r.fromCue} → {r.toCue}
                 </span>
                 <RowDetails row={r} bulk={bulk} />
@@ -757,7 +757,7 @@ export function TransitionForm({
  * 数と単位の間では折らない（`132` / `BPM` に割れると別の数に読める）
  */
 const Bpm = ({ value }: { value: number | null }) => (
-  <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+  <span className="ml-1.5 whitespace-nowrap font-mono text-[12px] tabular-nums text-fg-subtle">
     {value ?? "–"}
     <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
   </span>
@@ -785,24 +785,24 @@ function RowDetails({ row, bulk }: { row: ListedTransition; bulk: boolean }) {
       {hasTags && (
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           {row.technique && (
-            <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
+            <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
               {row.technique}
             </span>
           )}
-          {bars && <span className="text-[11.5px] tabular-nums text-fg-subtle">{bars}</span>}
-          {rating && <span className="text-[11.5px] text-warn">{rating}</span>}
+          {bars && <span className="text-[12px] tabular-nums text-fg-subtle">{bars}</span>}
+          {rating && <span className="text-[12px] text-warn">{rating}</span>}
           {difficulty && (
-            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+            <span className="rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-muted">
               {DIFFICULTY_LABEL[difficulty as Difficulty] ?? difficulty}
             </span>
           )}
           {practice && (
-            <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[11px] text-warn">
+            <span className="rounded border border-warn/40 bg-warn/10 px-1.5 py-0.5 text-[12px] text-warn">
               ⚑ 要練習
             </span>
           )}
           {row.chain && (
-            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+            <span className="rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-muted">
               {chainLabel(row.chain)}
             </span>
           )}
@@ -851,7 +851,7 @@ function Side({
           <p className="min-w-0 flex-1 text-[16px] font-semibold break-words">
             {track.name}
             {/* 「132 BPM · C」は1つの札。曲名が長いときは札ごと次の行へ送る（途中で割らない） */}
-            <span className="ml-2 whitespace-nowrap font-mono text-[12px] font-normal tabular-nums text-fg-muted">
+            <span className="ml-2 whitespace-nowrap font-mono text-[13px] font-normal tabular-nums text-fg-muted">
               {track.bpm ?? "–"} BPM{track.musicalKey && ` · ${track.musicalKey}`}
             </span>
           </p>
@@ -882,7 +882,7 @@ function Side({
                   className="tap flex w-full items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-surface-2"
                 >
                   <span className="min-w-0 flex-1 text-[14px] break-words">{t.name}</span>
-                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                  <span className="shrink-0 font-mono text-[12px] tabular-nums text-fg-subtle">
                     {t.cues.length}キュー
                   </span>
                 </button>
@@ -906,7 +906,7 @@ function Side({
             </p>
           ) : (
             <>
-            <p className="mb-1.5 text-[11.5px] text-fg-subtle">
+            <p className="mb-1.5 text-[12px] text-fg-subtle">
               {cue ? "もう一度押すと外せます（キュー未定）" : "キューは任意です。選ばずに保存するとキュー未定になります"}
             </p>
             <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
@@ -927,7 +927,7 @@ function Side({
                           {c.name || <span className="text-fg-subtle">（名前なし）</span>}
                           <LoopTag cue={c} />
                         </span>
-                        <span className="block font-mono text-[11px] tabular-nums text-fg-subtle">
+                        <span className="block font-mono text-[12px] tabular-nums text-fg-subtle">
                           {formatPosition(c.positionMs)}
                         </span>
                       </span>

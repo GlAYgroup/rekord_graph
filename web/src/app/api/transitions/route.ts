@@ -1,5 +1,6 @@
 import { asDifficulty } from "@/lib/difficulty";
 import { getGraph } from "@/lib/graph";
+import { RATINGS } from "@/lib/ratings";
 import { createTransition, deleteTransition, updateTransition } from "@/lib/transitions";
 
 /** 入力画面から 🔀Transitions に1行足す。 */
@@ -48,6 +49,11 @@ async function validated(body: Record<string, unknown> | null) {
   if (bars != null && barsAfter != null) {
     return { error: "小節数は「前」か「後」のどちらか片方だけ入れてください", status: 400 as const };
   }
+  // 評価は正本の配列だけを許す（`/api/transitions/rating` と同じ。揺れた選択肢を Notion に生やさない）
+  const rating = str(body?.rating) || null;
+  if (rating !== null && !RATINGS.includes(rating as (typeof RATINGS)[number])) {
+    return { error: "知らない評価です", status: 400 as const };
+  }
   // 小節数は「To キューの何小節前／後」。基準のキューが無いと意味を持たない
   if (!toCue && (bars != null || barsAfter != null)) {
     return { error: "小節数は To のキューを選んだときだけ入れられます", status: 400 as const };
@@ -61,13 +67,14 @@ async function validated(body: Record<string, unknown> | null) {
       comment: str(body?.comment),
       chain: str(body?.chain),
       technique: str(body?.technique) || null,
-      rating: str(body?.rating) || null,
+      rating,
       // 知らない値は捨てる（打ち間違いで Notion の選択肢を増やさない）
       difficulty: asDifficulty(str(body?.difficulty)),
       bars,
       barsAfter,
       practice: body?.practice === true,
-      order: numOrNull(body?.order),
+      // 送られてこなければ書かない（入力画面は順番を送らない。null で上書きすると移行分の順番が消える）
+      order: body && typeof body === "object" && "order" in body ? numOrNull(body.order) : undefined,
     },
   };
 }

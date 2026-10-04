@@ -79,7 +79,7 @@ export function TrackSearch({ tracks }: { tracks: SearchTrack[] }) {
             >
               <div className="flex items-baseline gap-2">
                 <span className="min-w-0 flex-1 font-semibold text-[15.5px] break-words">{t.name}</span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                <span className="shrink-0 font-mono text-[13px] tabular-nums text-fg-subtle">
                   {t.bpm ?? "–"}{t.musicalKey && ` ${t.musicalKey}`}
                 </span>
               </div>
@@ -93,7 +93,7 @@ export function TrackSearch({ tracks }: { tracks: SearchTrack[] }) {
                   />
                 ))}
               </div>
-              <div className="mt-2 flex items-center gap-2 font-mono text-[11px] tabular-nums">
+              <div className="mt-2 flex items-center gap-2 font-mono text-[12px] tabular-nums">
                 {t.out + t.in === 0 ? (
                   <span className="text-fg-subtle">未接続</span>
                 ) : (

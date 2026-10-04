@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 
 /**
  * パフォーマンスモード = **本番でプレイしている最中に開くための、書き換えられない状態。**
@@ -22,6 +22,10 @@ import { createContext, useCallback, useContext, useMemo, useSyncExternalStore }
  *
  * 状態は端末ごと（localStorage）。「今この端末が本番中か」は端末の事情なので、
  * Notion に持たない。
+ *
+ * ★ 本番中は**画面を消灯させない**（Screen Wake Lock。`useScreenWakeLock`）。
+ *   プレイ中は画面に触らない時間が長く、次の繋ぎを読もうとした瞬間に画面が消えていると、
+ *   暗いブースでロック解除からやり直すことになる。本番を切ったら離す。
  */
 
 const STORAGE = "rg.performance.v1";
@@ -55,11 +59,50 @@ export function PerformanceProvider({ children }: { children: React.ReactNode })
     window.dispatchEvent(new Event(EVENT));
   }, []);
 
+  useScreenWakeLock(on);
+
   const value = useMemo(() => ({ on, toggle }), [on, toggle]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export const usePerformance = () => useContext(Ctx);
+
+/**
+ * `on` の間だけ画面の消灯を止める。
+ * - タブを裏に回すとブラウザが勝手に離すので、表に戻ったとき（`visibilitychange` → visible）に取り直す
+ * - 未対応の端末（古い iOS など）・電池節約モードで断られたときは**黙って諦める**（本番の邪魔をしない）
+ * - 取りに行っている途中に切られたら、届いた分はその場で離す（取り残すと消灯しないままになる）
+ */
+function useScreenWakeLock(on: boolean) {
+  useEffect(() => {
+    if (!on || typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
+    let sentinel: WakeLockSentinel | null = null;
+    let pending = false;
+    let disposed = false;
+    const acquire = async () => {
+      if (pending || document.visibilityState !== "visible" || (sentinel && !sentinel.released)) return;
+      pending = true;
+      try {
+        const s = await navigator.wakeLock.request("screen");
+        if (disposed) { s.release().catch(() => {}); return; }
+        sentinel = s;
+      } catch {
+        /* 未対応・断られた: 何もしない */
+      } finally {
+        pending = false;
+      }
+    };
+    const onVisibility = () => { if (document.visibilityState === "visible") void acquire(); };
+    void acquire();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      sentinel?.release().catch(() => {});
+      sentinel = null;
+    };
+  }, [on]);
+}
 
 /** 本番中であることを画面上端の細い線で出す。DJ 中に「今どっちか」を一目で分かるように */
 export function PerformanceBar() {
@@ -121,7 +164,7 @@ export function PerformanceToggle({ variant }: { variant: "rail" | "corner" }) {
       className="fixed right-1.5 top-[env(safe-area-inset-top,0px)] z-40 flex h-11 items-center px-1.5 md:hidden"
     >
       <span
-        className={`flex h-8 items-center gap-1.5 rounded-full border pl-2.5 pr-1 text-[11.5px] font-semibold tracking-wide backdrop-blur-md transition-colors ${
+        className={`flex h-8 items-center gap-1.5 rounded-full border pl-2.5 pr-1 text-[12px] font-semibold tracking-wide backdrop-blur-md transition-colors ${
           on ? "border-hot/70 bg-hot/15 text-hot" : "border-border-bright bg-bg/85 text-fg-subtle"
         }`}
         style={on ? { boxShadow: "var(--glow-hot)" } : undefined}

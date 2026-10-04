@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useDeferredValue, useMemo, useState } from "react";
 import { minutesLabel, setLength, timingOf } from "@/lib/duration";
-import { filterSummary, isFiltering, passesFilter } from "@/lib/playFilter";
+import { filterSummary, isFiltering, passesFilter, skipsTrack } from "@/lib/playFilter";
+import { insertUnplaced } from "@/lib/planInsert";
+import { usePlanMode } from "@/lib/planMode";
 import { readPlan } from "@/lib/playlog";
 import { planRoute } from "@/lib/route";
 import type { Cue, Track, Transition } from "@/lib/types";
@@ -24,7 +26,11 @@ import { SaveAsPlaylist } from "./SaveAsPlaylist";
  * - 「この順で始める」で `/play?from=<最初の曲>` を開く。道筋は端末に残り、`/play` は
  *   予定の繋ぎに印を付ける（並びは変えない）
  *
- * 選んだ曲は端末に残す（`lib/playlog.ts`）。Notion には何も書かないので `data-edit` は付けない。
+ * - 「差し込む」にすると、繋ぎが無い・同じ道に入り切らない曲を、BPM・キーが近い所へ**記録なしの間**として
+ *   入れる（`lib/planInsert.ts`。除外条件で外れた曲・別リミックスが入っている曲は入れない）。
+ *   /play へ渡す予定と、プレイリスト保存は**記録のある繋ぎだけ**で作る
+ *
+ * 選んだ曲は端末に残す（`lib/playlog.ts`。差し込むかどうかは `lib/planMode.ts`）。Notion には何も書かないので `data-edit` は付けない。
  */
 export function SetPlanner({
   tracks, cues, transitions,
@@ -73,10 +79,10 @@ export function SetPlanner({
     [usable, songOf, deferred, timing],
   );
   const stale = deferred !== wanted;
-  const length = useMemo(() => setLength(plan.trackIds, plan.edges, lookup), [plan, lookup]);
+  const [mode, setMode] = usePlanMode();
 
-  /** 入らなかった曲と、その理由 */
-  const missing = useMemo(() => {
+  /** 入らなかった曲と、その理由（`insertable` = 差し込みの対象になる理由か） */
+  const unplaced = useMemo(() => {
     const inRoute = new Set(plan.trackIds);
     const routeSongs = new Set(plan.trackIds.map(songOf));
     const linked = (id: string, list: readonly Transition[]) =>
@@ -85,17 +91,41 @@ export function SetPlanner({
     return deferred
       .filter((id) => !inRoute.has(id))
       .map((id) => {
-        const reason = routeSongs.has(songOf(id))
-          ? "同じ曲の別リミックスが道筋に入っています"
-          : !linked(id, transitions)
-            ? "この曲の繋ぎがまだ記録されていません"
-            : !linked(id, usableList)
-              ? "この曲の繋ぎが、どれも除外条件で外れています"
-              : "繋ぎはありますが、同じ道筋に入れられませんでした";
-        return { id, name: trackById.get(id)?.name ?? "不明な曲", reason };
+        const track = trackById.get(id);
+        const [reason, insertable] = routeSongs.has(songOf(id))
+          ? ["同じ曲の別リミックスが道筋に入っています", false]
+          : track && skipsTrack(filter, track)
+            ? ["この曲のジャンル・タグが除外条件に入っています", false]
+            : !linked(id, transitions)
+              ? ["この曲の繋ぎがまだ記録されていません", true]
+              : !linked(id, usableList)
+                ? ["この曲の繋ぎが、どれも除外条件で外れています", false]
+                : ["繋ぎはありますが、同じ道筋に入れられませんでした", true];
+        return { id, name: track?.name ?? "不明な曲", reason, insertable };
       });
-  }, [plan, deferred, usable, transitions, songOf, trackById]);
+  }, [plan, deferred, usable, transitions, songOf, trackById, filter]);
 
+  /** 「差し込む」なら、BPM・キーが近い所へ記録なしの間として入れた道筋。「省く」なら道筋そのまま */
+  const shownRoute = useMemo(() => {
+    if (mode !== "insert") return { trackIds: plan.trackIds, hops: plan.edges as (Transition | null)[], inserted: [] as string[] };
+    return insertUnplaced(plan.trackIds, plan.edges, unplaced.filter((m) => m.insertable).map((m) => m.id), trackById);
+  }, [mode, plan, unplaced, trackById]);
+  const insertedSet = useMemo(() => new Set(shownRoute.inserted), [shownRoute]);
+  const missing = useMemo(() => unplaced.filter((m) => !insertedSet.has(m.id)), [unplaced, insertedSet]);
+  // 記録なしの間は null。`setLength` は空の間を「頭から / 終わりまで」として数えるので、そのまま渡せる
+  const length = useMemo(
+    () => setLength(shownRoute.trackIds, shownRoute.hops as Transition[], lookup),
+    [shownRoute, lookup],
+  );
+  /** /play の「予定」の印は繋ぎIDで付くので、記録のある繋ぎだけを渡す（途中に差し込んで切った繋ぎは入らない） */
+  const recordedHops = useMemo(() => shownRoute.hops.filter((h): h is Transition => !!h), [shownRoute]);
+
+  /** 繋ぎが1本でもある曲（向きは問わない）。無い曲は一覧で「未接続」と出し、後ろへ回す */
+  const connected = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of transitions) { s.add(t.fromTrackId); s.add(t.toTrackId); }
+    return s;
+  }, [transitions]);
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
     const words = q.normalize("NFKC").trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -104,10 +134,12 @@ export function SetPlanner({
         const hay = `${t.name} ${t.alias} ${t.fullTitle}`.normalize("NFKC").toLowerCase();
         return words.every((w) => hay.includes(w));
       })
-      .sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  }, [q, tracks]);
+      .sort((a, b) =>
+        Number(connected.has(b.id)) - Number(connected.has(a.id)) || a.name.localeCompare(b.name, "ja"));
+  }, [q, tracks, connected]);
 
-  const start = () => setStored({ wanted, route: plan.edges.map((e) => e.id) });
+  const start = () => setStored({ wanted, route: recordedHops.map((e) => e.id) });
+  const total = shownRoute.trackIds.length;
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
@@ -132,14 +164,37 @@ export function SetPlanner({
         </p>
       )}
 
+      {/* ── 繋げられない曲の扱い ── */}
+      <div className="mt-3" role="radiogroup" aria-label="繋げられない曲の扱い">
+        <span className="label">繋げられない曲</span>
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          {([
+            ["skip", "省く", "道筋に入らなかった曲は、理由を付けて下に出します"],
+            ["insert", "BPM・キーが近い所に差し込む", "繋ぎが無い・同じ道に入り切らない曲を、記録なしの間として道筋の頭・尻（または途中）へ入れます"],
+          ] as const).map(([value, label, title]) => (
+            <button
+              key={value}
+              role="radio"
+              aria-checked={mode === value}
+              title={title}
+              onClick={() => setMode(value)}
+              className={`btn rounded-card px-2 text-[12.5px] ${mode === value ? "btn-accent" : ""}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── 結果 ── */}
       {wanted.length > 0 && (
         <section className={`mt-4 rounded-card border border-border bg-surface p-3 ${stale ? "opacity-60" : ""}`}>
           <p className="text-[14px] font-semibold">
-            選んだ{deferred.length}曲中 <span className="text-hot">{plan.hits}曲</span>を通る
+            選んだ{deferred.length}曲中 <span className="text-hot">{plan.hits + shownRoute.inserted.length}曲</span>を通る
+            {shownRoute.inserted.length > 0 && ` · うち差し込み ${shownRoute.inserted.length}`}
             {plan.trackIds.length > plan.hits && ` · 挟む曲 ${plan.trackIds.length - plan.hits}`}
-            {` · 全${plan.trackIds.length}曲`}
-            {plan.trackIds.length > 1 && (
+            {` · 全${total}曲`}
+            {total > 1 && (
               <span className="font-normal text-fg-muted">
                 {` · ${length.approx ? "目安 " : ""}${minutesLabel(length.cutSec)}（全長 ${minutesLabel(length.fullSec)}）`}
               </span>
@@ -152,11 +207,12 @@ export function SetPlanner({
           )}
           <div className="mt-3">
             <RouteSteps
-              trackIds={plan.trackIds}
-              edges={plan.edges}
+              trackIds={shownRoute.trackIds}
+              edges={shownRoute.hops}
               trackById={trackById}
               cueById={cueById}
               marked={wantedSet}
+              inserted={insertedSet}
             />
           </div>
           {missing.length > 0 && (
@@ -172,22 +228,31 @@ export function SetPlanner({
               </ul>
             </div>
           )}
-          {plan.trackIds.length > 0 && !stale && (
+          {shownRoute.inserted.length > 0 && !stale && (
+            <p className="mt-2 text-[12px] text-fg-subtle">
+              記録なしの間は、/play では「曲を変える」で次の曲へ移ります。
+            </p>
+          )}
+          {total > 0 && !stale && (
             <Link
-              href={`/play?from=${encodeURIComponent(plan.trackIds[0])}`}
+              href={`/play?from=${encodeURIComponent(shownRoute.trackIds[0])}`}
               onClick={start}
               className="btn btn-hot mt-3 w-full rounded-card text-[14px]"
             >
               この順で /play を始める →
             </Link>
           )}
-          {plan.trackIds.length > 1 && !stale && (
+          {/*
+            画面に出している道筋（差し込んだ曲も含む）をそのまま保存する。差し込んだ間は記録に無いので
+            null = プレイリストでは繋ぎ無しになる
+          */}
+          {shownRoute.trackIds.length > 1 && !stale && (
             <SaveAsPlaylist
-              key={plan.edges.map((e) => e.id).join(",")}
-              trackIds={plan.trackIds}
-              edges={plan.edges}
+              key={shownRoute.trackIds.join(",")}
+              trackIds={shownRoute.trackIds}
+              edges={shownRoute.hops}
               trackById={trackById}
-              defaultName={`${trackById.get(plan.trackIds[0])?.name ?? ""} 始まり ${plan.trackIds.length}曲`}
+              defaultName={`${trackById.get(shownRoute.trackIds[0])?.name ?? ""} 始まり`}
             />
           )}
         </section>
@@ -244,7 +309,8 @@ export function SetPlanner({
                   {on ? "✓" : ""}
                 </span>
                 <span className={`min-w-0 flex-1 break-words text-[14.5px] ${on ? "text-accent" : ""}`}>{t.name}</span>
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">{t.bpm ?? "–"}</span>
+                {!connected.has(t.id) && <span className="shrink-0 text-[12px] text-fg-subtle">未接続</span>}
+                <span className="shrink-0 font-mono text-[13px] tabular-nums text-fg-subtle">{t.bpm ?? "–"}</span>
               </button>
             </li>
           );

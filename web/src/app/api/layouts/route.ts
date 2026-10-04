@@ -1,4 +1,5 @@
-import { deletePattern, listPatterns, renamePattern, savePattern } from "@/lib/patterns";
+import { orUnavailable } from "@/lib/notion";
+import { deletePattern, freeName, listPatterns, renamePattern, savePattern } from "@/lib/patterns";
 
 /**
  * 配置パターンの保存先。グラフ画面の「保存」ボタンだけが叩く。
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 const notLayout = () => Response.json({ error: "その配置パターンは見つかりません" }, { status: 404 });
 
 export async function GET() {
-  return Response.json({ patterns: await listPatterns() });
+  return orUnavailable(async () => Response.json({ patterns: await listPatterns() }));
 }
 
 export async function POST(request: Request) {
@@ -25,9 +26,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "name と positions が要ります" }, { status: 400 });
   }
   const id = typeof body?.id === "string" ? body.id : undefined;
-  const pattern = await savePattern(name, positions, id);
-  if (!pattern) return notLayout();
-  return Response.json({ pattern, patterns: await listPatterns() });
+  // 新規で名前が重なったら、lib が `パターン3 (2)` のように空いている名前に変えて作る
+  return orUnavailable(async () => {
+    const pattern = await savePattern(name, positions, id);
+    if (!pattern) return notLayout();
+    return Response.json({ pattern, patterns: await listPatterns() });
+  });
 }
 
 /** 名前だけを変える（配置は書かない） */
@@ -38,14 +42,22 @@ export async function PATCH(request: Request) {
   if (!id || !name) {
     return Response.json({ error: "id と name が要ります" }, { status: 400 });
   }
-  const pattern = await renamePattern(id, name);
-  if (!pattern) return notLayout();
-  return Response.json({ pattern, patterns: await listPatterns() });
+  return orUnavailable(async () => {
+    // 他のパターンと同じ名前は受け付けない（画面も弾くが、手元の一覧が古いと素通りする）
+    if ((await freeName(name, id)) !== name) {
+      return Response.json({ error: `「${name}」は既にあります` }, { status: 409 });
+    }
+    const pattern = await renamePattern(id, name);
+    if (!pattern) return notLayout();
+    return Response.json({ pattern, patterns: await listPatterns() });
+  });
 }
 
 export async function DELETE(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return Response.json({ error: "id が要ります" }, { status: 400 });
-  if (!(await deletePattern(id))) return notLayout();
-  return Response.json({ patterns: await listPatterns() });
+  return orUnavailable(async () => {
+    if (!(await deletePattern(id))) return notLayout();
+    return Response.json({ patterns: await listPatterns() });
+  });
 }

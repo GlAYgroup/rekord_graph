@@ -11,7 +11,7 @@ export function CuePad({ cue, size = "md" }: { cue: Cue | null | undefined; size
   // null = キューを決めずに残した繋ぎ（曲とメモだけ）。壊れた参照（undefined）の「?」と見分ける
   if (cue === null) {
     return (
-      <span className={`grid place-items-center rounded-pad border border-dashed border-border-bright text-fg-subtle ${big ? "size-12 text-[13px]" : "size-9 text-[11px]"}`}>
+      <span className={`grid place-items-center rounded-pad border border-dashed border-border-bright text-fg-subtle ${big ? "size-12 text-[13px]" : "size-9 text-[12px]"}`}>
         未定
       </span>
     );
@@ -51,7 +51,7 @@ export function LoopTag({ cue }: { cue: Cue | null | undefined }) {
   const len = cue ? loopLengthMs(cue) : null;
   return (
     <span
-      className="shrink-0 rounded border border-hot/40 bg-hot/10 px-1.5 py-0.5 text-[10.5px] leading-none text-hot"
+      className="shrink-0 rounded border border-hot/40 bg-hot/10 px-1.5 py-0.5 text-[12px] leading-none text-hot"
       title={len ? `ループ ${(len / 1000).toFixed(1)}秒` : "ループ"}
     >
       ループ
@@ -75,7 +75,7 @@ export function CueLine({ cue, size = "md" }: { cue: Cue | null | undefined; siz
           <LoopTag cue={cue} />
         </span>
         {cue !== null && (
-          <span className={`block font-mono text-fg-subtle tabular-nums ${size === "sm" ? "text-[11px]" : "text-[12px]"}`}>
+          <span className={`block font-mono text-fg-subtle tabular-nums ${size === "sm" ? "text-[12px]" : "text-[12px]"}`}>
             {formatPosition(cue?.positionMs ?? null)}
           </span>
         )}

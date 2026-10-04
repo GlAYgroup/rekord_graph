@@ -17,7 +17,7 @@ export const metadata = { title: "練習 | rekord_graph" };
 /** 曲名の後ろに添える BPM。曲名の一部として折り返させたいので inline で置く
     （ただし数字と「BPM」の間では割らない） */
 const Bpm = ({ value }: { value: number | null }) => (
-  <span className="ml-1.5 whitespace-nowrap font-mono text-[11px] tabular-nums text-fg-subtle">
+  <span className="ml-1.5 whitespace-nowrap font-mono text-[12px] tabular-nums text-fg-subtle">
     {value ?? "–"}
     <span className="ml-0.5 text-[9px] tracking-wide">BPM</span>
   </span>
@@ -50,18 +50,18 @@ export default async function PracticePage() {
                   {from?.name ?? "?"}<Bpm value={from?.bpm ?? null} />{" "}
                   <span className="text-hot">→</span> {to?.name ?? "?"}<Bpm value={to?.bpm ?? null} />
                 </span>
-                <span className="mt-0.5 block font-mono text-[11.5px] text-fg-subtle break-words">
+                <span className="mt-0.5 block font-mono text-[12px] text-fg-subtle break-words">
                   {cueLabel(cueOf(g.cueById, t.fromCueId))} → {cueLabel(toCue)}
                 </span>
                 {(t.technique || barsLabel(t, cueLabel(toCue)) || t.comment) && (
                   <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-fg-muted">
                     {t.technique && (
-                      <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
+                      <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
                         {t.technique}
                       </span>
                     )}
                     {barsLabel(t, cueLabel(toCue)) && (
-                      <span className="text-[11px] text-fg-subtle tabular-nums">{barsLabel(t, cueLabel(toCue))}</span>
+                      <span className="text-[12px] text-fg-subtle tabular-nums">{barsLabel(t, cueLabel(toCue))}</span>
                     )}
                     {t.comment && <span className="break-words">{t.comment}</span>}
                   </span>

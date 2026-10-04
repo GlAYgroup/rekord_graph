@@ -31,7 +31,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config  # noqa: E402
 import rb_export  # noqa: E402
-from rb_tags import backup, open_db, rekordbox_running  # noqa: E402
+from rb_db import backup, refuse_if_running, rekordbox_running  # noqa: E402
+from rb_tags import open_db  # noqa: E402
 
 HOT_YELLOW = (255, 32)  # (Color, ColorTableIndex)
 MEMORY_YELLOW = 3       # Color
@@ -91,7 +92,7 @@ def main() -> int:
         print("rekordbox が起動中です。終了してから実行してください（--dry-run なら可）。", file=sys.stderr)
         return 1
 
-    db, tmp = open_db(copy=args.dry_run)
+    db, _ = open_db(copy=args.dry_run)
     try:
         plan = build_plan(db, names, args.all)
         n = sum(len(v) for v in plan.values())
@@ -108,7 +109,7 @@ def main() -> int:
             print("何も書き込みませんでした。")
             return 0
 
-        dest = backup()
+        dest = backup()  # 確認を待つ間に起動されていないかも、ここでもう一度見る
         print(f"バックアップ: {dest}")
         ids = [c.ID for v in plan.values() for c in v]
         for v in plan.values():
@@ -117,11 +118,10 @@ def main() -> int:
                     c.Color, c.ColorTableIndex = HOT_YELLOW
                 else:
                     c.Color = MEMORY_YELLOW
+        refuse_if_running()  # commit の直前にもう一度
         db.commit()
     finally:
         db.close()
-        if tmp:
-            tmp.cleanup()
 
     # 読み直して確かめる（書いたつもりで書けていないのがいちばん困る）
     db, _ = open_db(copy=False)

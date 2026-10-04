@@ -54,20 +54,20 @@ export function TransitionCard({
           {direction === "out" && maxOnward !== null && (
             maxOnward > 1 ? (
               <span
-                className="shrink-0 rounded border border-hot/35 bg-hot/10 px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-hot"
+                className="shrink-0 rounded border border-hot/35 bg-hot/10 px-1.5 py-0.5 font-mono text-[12px] tabular-nums text-hot"
                 title="この分岐へ進んだ場合、そこから最大何曲つなげられるか"
               >
                 この先{maxOnward}曲
               </span>
             ) : (
-              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-subtle">
+              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-subtle">
                 行き止まり
               </span>
             )
           )}
           <span className="ml-auto flex items-center gap-1.5 shrink-0">
             <TempoBadge from={currentBpm} to={otherTrack?.bpm ?? null} />
-            <span className="whitespace-nowrap font-mono text-[11px] text-fg-subtle tabular-nums">
+            <span className="whitespace-nowrap font-mono text-[13px] text-fg-subtle tabular-nums">
               {otherTrack?.bpm ?? "–"}{otherTrack?.musicalKey && ` ${otherTrack.musicalKey}`}
             </span>
           </span>

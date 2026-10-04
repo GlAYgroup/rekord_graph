@@ -26,18 +26,18 @@ export function TransitionDetails({
       {hasTags && (
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {t.technique && (
-            <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[11px] text-fg">
+            <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
               {t.technique}
             </span>
           )}
-          {bars && <span className="text-[11.5px] tabular-nums text-fg-subtle">{bars}</span>}
+          {bars && <span className="text-[12px] tabular-nums text-fg-subtle">{bars}</span>}
           {t.difficulty && (
-            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+            <span className="rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-muted">
               {DIFFICULTY_LABEL[t.difficulty as Difficulty] ?? t.difficulty}
             </span>
           )}
           {t.chain && (
-            <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-fg-muted">
+            <span className="rounded border border-border px-1.5 py-0.5 text-[12px] text-fg-muted">
               {chainLabel(t.chain)}
             </span>
           )}

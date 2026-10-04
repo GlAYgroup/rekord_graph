@@ -1,5 +1,5 @@
 import "server-only";
-import { DB, hasDb, request, text, type NotionPage } from "./notion";
+import { DB, hasDb, isNotFound, queryAll, request, text, type NotionPage } from "./notion";
 import type { Playlist } from "./playlist";
 
 /**
@@ -46,24 +46,28 @@ function toPlaylist(page: NotionPage): Playlist {
 /** 日付が新しい順（日付なしは後ろ）→ 最後に直した順 */
 export async function listPlaylists(): Promise<Playlist[]> {
   if (!hasDb("playlists")) return [];
-  const res = await request<{ results: NotionPage[] }>(`/databases/${DB.playlists}/query`, {
-    method: "POST",
-    body: { page_size: 100, sorts: [{ timestamp: "last_edited_time", direction: "descending" }] },
-    fresh: true,
-  });
-  return res.results
+  // 全ページ読む（1ページ = 100件で切ると、古いプレイリストが一覧から黙って消える）
+  const pages = await queryAll(DB.playlists, true, [{ timestamp: "last_edited_time", direction: "descending" }]);
+  return pages
     .map(toPlaylist)
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.editedTime.localeCompare(a.editedTime));
 }
 
 const normId = (id: string) => id.replace(/-/g, "").toLowerCase();
 
-/** `id` が 🎶Playlists の（捨てていない）行か。読めない ID も「違う」に倒す */
+/**
+ * `id` が 🎶Playlists の（捨てていない）行か。「無い」と言い切れる ID（404・形が違う）は「違う」に倒す。
+ * 混んでいる（429）・回線の失敗は投げ直す — false にすると、混んでいるだけで
+ * 「そのプレイリストは見つかりません」になる（API は 503 を返す）
+ */
 async function isPlaylistPage(id: string): Promise<boolean> {
   if (!hasDb("playlists")) return false;
   const page = await request<{ parent?: { database_id?: string }; archived?: boolean }>(
     `/pages/${encodeURIComponent(id)}`, { fresh: true },
-  ).catch(() => null);
+  ).catch((e) => {
+    if (isNotFound(e)) return null;
+    throw e;
+  });
   return !!page && !page.archived && normId(page.parent?.database_id ?? "") === normId(DB.playlists);
 }
 

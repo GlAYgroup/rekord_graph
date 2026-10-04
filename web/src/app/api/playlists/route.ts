@@ -1,4 +1,4 @@
-import { hasDb } from "@/lib/notion";
+import { hasDb, orUnavailable } from "@/lib/notion";
 import { deletePlaylist, listPlaylists, savePlaylist, type PlaylistInput } from "@/lib/playlists";
 
 /**
@@ -38,7 +38,7 @@ function parse(body: Record<string, unknown> | null): PlaylistInput | string {
 
 export async function GET() {
   if (!hasDb("playlists")) return notSetUp();
-  return Response.json({ playlists: await listPlaylists() });
+  return orUnavailable(async () => Response.json({ playlists: await listPlaylists() }));
 }
 
 /** `id` があれば上書き、無ければ新規 */
@@ -48,15 +48,19 @@ export async function POST(request: Request) {
   const input = parse(body);
   if (typeof input === "string") return Response.json({ error: input }, { status: 400 });
   const id = typeof body?.id === "string" && body.id ? body.id : undefined;
-  const playlist = await savePlaylist(input, id);
-  if (!playlist) return notFound();
-  return Response.json({ playlist });
+  return orUnavailable(async () => {
+    const playlist = await savePlaylist(input, id);
+    if (!playlist) return notFound();
+    return Response.json({ playlist });
+  });
 }
 
 export async function DELETE(request: Request) {
   if (!hasDb("playlists")) return notSetUp();
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return Response.json({ error: "id が要ります" }, { status: 400 });
-  if (!(await deletePlaylist(id))) return notFound();
-  return Response.json({ ok: true });
+  return orUnavailable(async () => {
+    if (!(await deletePlaylist(id))) return notFound();
+    return Response.json({ ok: true });
+  });
 }

@@ -7,6 +7,7 @@ import { minutesLabel, timingOf } from "@/lib/duration";
 import { barsLabel, cueLabel, cueOf } from "@/lib/format";
 import { alignHops, checkPlaylist, type Playlist } from "@/lib/playlist";
 import type { Cue, Track, Transition } from "@/lib/types";
+import { OfflinePrep } from "./OfflinePrep";
 
 /**
  * 1本のプレイリストを並べる画面。**下書きを手元で直して、「保存」で1回だけ Notion に書く**
@@ -17,6 +18,7 @@ import type { Cue, Track, Transition } from "@/lib/types";
  * - /play の約束を破る並び（繋ぎなし・時間が逆行する・同じ曲が2回）は**止めずに警告**する
  *   （まだ繋ぎを入れていない曲も、イベントのために先に並べておけるように）
  * - 「この順でプレイ」は、このプレイリストの繋ぎだけを順にたどるプレイ画面（`PlaylistPlayer`）を開く
+ * - 「オフライン用に準備」で、プレイ画面・この画面・入っている曲の曲ページ・/play を端末に入れておく（`OfflinePrep`）
  * - rekordbox へは PC で `tools/rb_playlist.py` を回す（アプリからは master.db に触れない）
  */
 export function PlaylistEditor({
@@ -207,11 +209,11 @@ export function PlaylistEditor({
           return (
             <li key={`${rb}-${i}`}>
               <div className="flex items-center gap-2 rounded-card border border-border bg-surface py-1.5 pl-2 pr-1.5">
-                <span className="w-6 shrink-0 text-right font-mono text-[11px] tabular-nums text-fg-subtle">{i + 1}</span>
+                <span className="w-6 shrink-0 text-right font-mono text-[12px] tabular-nums text-fg-subtle">{i + 1}</span>
                 <span className="min-w-0 flex-1 break-words text-[15px]">
                   {t?.name ?? `rekordbox に無い曲（${rb}）`}
                   {sameSong.has(i) && (
-                    <span className="ml-2 inline-block rounded border border-warn/40 px-1.5 text-[10.5px] text-warn">
+                    <span className="ml-2 inline-block rounded border border-warn/40 px-1.5 text-[12px] text-warn">
                       {`${sameSong.get(i)! + 1}曲目と同じ曲`}
                     </span>
                   )}
@@ -280,6 +282,19 @@ export function PlaylistEditor({
         )}
       </div>
       {saved && !dirty && <p className="mt-2 text-[13px] text-fg-muted">保存しました。</p>}
+      {playlist.trackRbIds.length > 0 && (
+        <OfflinePrep
+          // 入れるのは保存済みの並び（プレイ画面が読むのはそちら）
+          urls={[
+            `/playlists/${playlist.id}/play`,
+            `/playlists/${playlist.id}`,
+            "/play",
+            ...[...new Set(playlist.trackRbIds.map((rb) => byRb.get(rb)?.id).filter((x): x is string => !!x))]
+              .map((tid) => `/track/${tid}`),
+          ]}
+          disabledReason={dirty ? "直しかけです。保存してから準備してください（入れるのは保存済みの並びです）。" : null}
+        />
+      )}
       {error && <p className="mt-2 text-[13px] text-warn">{error}</p>}
       <p className="mt-2 text-[12px] text-fg-subtle">
         rekordbox へは PC で rekordbox を閉じてから <code className="font-mono">tools/rb_playlist.py --apply</code>
@@ -308,8 +323,8 @@ export function PlaylistEditor({
                 className="tap flex w-full items-center gap-2 rounded-card border border-border bg-surface px-3 py-1.5 text-left hover:border-border-bright"
               >
                 <span className="min-w-0 flex-1 break-words text-[14px]">{t.name}</span>
-                {usedSongs.has(t.songId) && <span className="shrink-0 text-[11px] text-warn">入っています</span>}
-                <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">{t.bpm ?? "–"}</span>
+                {usedSongs.has(t.songId) && <span className="shrink-0 text-[12px] text-warn">入っています</span>}
+                <span className="shrink-0 font-mono text-[13px] tabular-nums text-fg-subtle">{t.bpm ?? "–"}</span>
                 <span className="shrink-0 text-[13px] text-accent">＋</span>
               </button>
             </li>

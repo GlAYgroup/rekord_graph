@@ -69,7 +69,7 @@ export function PracticeToggle({
       // カードの中に居るので、ここで押されたものは親へ渡さない
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
     >
-      {failed && <span className="text-[11px] text-warn">保存できず</span>}
+      {failed && <span className="text-[13px] text-warn">保存できず</span>}
       <button
         type="button"
         disabled={busy}

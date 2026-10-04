@@ -6,7 +6,7 @@
    配布物としては参考実装。自分のメモを流し込むなら SOURCE_PAGE と解析の正規表現を差し替える。
 
     ./.venv/bin/python tools/migrate_transitions.py            # 解析して報告するだけ
-    ./.venv/bin/python tools/migrate_transitions.py --apply    # 解決できた分を投入
+    ./.venv/bin/python tools/migrate_transitions.py --apply    # 解決できた分を投入（移行済みの行があれば止まる）
 
 ★ 照合の原則（CLAUDE.md 参照）:
    キュー名（「」の中身）が一次キー。アルファベットは補助でしかない。
@@ -201,7 +201,19 @@ def main() -> int:
         return 2
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="解決できたものを Transitions に投入する")
+    ap.add_argument("--force", action="store_true",
+                    help="移行済みの行（出典=完全版…）があっても投入する。全件が2行目として重複するので通常は使わない")
     args = ap.parse_args()
+
+    # 一回きりの移行。--apply を2回流すと全件が重複する（追加しかしないため）ので、
+    # 移行済みの行が既にあれば投入しない
+    if args.apply and not args.force:
+        done = [pg for pg in na.query_all(na.CONFIG["transitions"])
+                if na.plain(pg["properties"].get("出典")).startswith("完全版")]
+        if done:
+            print(f"🔀Transitions に移行済みの行（出典=完全版…）が {len(done)} 件あります。"
+                  "二重投入になるので --apply を止めました（それでも入れるなら --force）", file=sys.stderr)
+            return 1
 
     aliases = {v: k for k, v in {}.items()}  # 予約: メモ側の別表記 -> 正式名
     seed = json.loads((ROOT / "data/aliases.json").read_text(encoding="utf-8"))

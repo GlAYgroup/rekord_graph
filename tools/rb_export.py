@@ -6,8 +6,8 @@ master.db は SQLCipher 暗号化されているため pyrekordbox で復号し�
 rekordbox 起動中は -wal に未反映の変更があるので、必ずコピーしてから読む
 （実ファイルは決して開かない）。
 
-出力は Notion の 🎵Tracks / 📍Cues DB の投入元であり、
-同期レビュー（差分検出）の前回スナップショットも兼ねる。
+sync.py は `export_configured()` を直接呼んで毎回 master.db を読むので、sync の前に
+このコマンドを回す必要はない（data/rekordbox.json は中身を目で確かめたいとき用）。
 キューの正準IDは rekordbox の UUID。記号やキュー名が変わっても UUID は不変なので、
 「名前が似ているから同じキューだろう」という推測なしに差分を取れる。
 """
@@ -15,28 +15,16 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import os
 import json
-import shutil
 import sys
-import tempfile
 from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import config
+# 場所とコピーは rb_db が1か所で持つ（backup.py などが rb_export から import するので名前は残す）
+from rb_db import RB_DIR, copy_db, open_copy, rekordbox_dir  # noqa: E402,F401
 
-
-def rekordbox_dir() -> Path:
-    """rekordbox 6/7 の master.db がある場所。環境変数 REKORDBOX_DIR で上書きできる。"""
-    if os.environ.get("REKORDBOX_DIR"):
-        return Path(os.environ["REKORDBOX_DIR"])
-    if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home() / "AppData/Roaming")) / "Pioneer/rekordbox"
-    return Path.home() / "Library/Pioneer/rekordbox"
-
-
-RB_DIR = rekordbox_dir()
 OUT = Path(__file__).resolve().parent.parent / "data" / "rekordbox.json"
 
 # rekordbox の Kind: 0 = メモリーキュー、1..3 = ホットキュー A..C、**4 は使われず**、5.. = D..
@@ -44,18 +32,6 @@ OUT = Path(__file__).resolve().parent.parent / "data" / "rekordbox.json"
 # 実機の画面で D「1サビ終」のキューは DB では Kind=5 だった（Bad Apple!! で確認）。
 # 以前の「1..16 = A..P」の素朴な対応では **D 以降の記号が全部1つ後ろにズレる**。
 HOTCUE_LETTERS = "ABCDEFGHIJKLMNOP"
-
-
-def copy_db(dest: Path) -> Path:
-    """master.db と -wal / -shm をまとめてコピーする。
-
-    -wal を持っていかないと直近の編集が欠ける。
-    """
-    for suffix in ("", "-wal", "-shm"):
-        src = RB_DIR / f"master.db{suffix}"
-        if src.exists():
-            shutil.copy2(src, dest / f"master.db{suffix}")
-    return dest / "master.db"
 
 
 def cue_letter(kind: int | None) -> str | None:
@@ -134,18 +110,15 @@ def rename_track_ids() -> set[str]:
     `*_check_repo` は取り込んだばかりで使うか決めていない曲の置き場なので、曲名を整える手間をかけない。
     sync の範囲（scopePlaylists）はそのまま — 外すと Notion から見えなくなる
     """
-    from pyrekordbox import Rekordbox6Database
-
     opts = config.rekordbox_options()
     if not opts["scopePlaylists"]:
         raise ScopeError("rekordbox.scopePlaylists が空です（曲名を整える対象はその配下で決めます）")
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Rekordbox6Database(path=str(copy_db(Path(tmp))), unlock=True)
-        try:
-            return scope_track_ids(db.get_playlist().all(), db.get_playlist_contents,
-                                   opts["scopePlaylists"], opts["renameExcludePlaylists"])
-        finally:
-            db.close()
+    db = open_copy()
+    try:
+        return scope_track_ids(db.get_playlist().all(), db.get_playlist_contents,
+                               opts["scopePlaylists"], opts["renameExcludePlaylists"])
+    finally:
+        db.close()
 
 
 def export_configured() -> dict:
@@ -162,11 +135,8 @@ def export(only: str | None = None, scope: list[str] | None = None) -> dict:
     返す `outOfScope` は「ライブラリにはあるが絞り込みで外した曲ID」。sync はこれを
     「消えた曲」と区別し、Notion から消さない（プレイリストから外しただけで繋ぎが見えなくなるため）。
     """
-    from pyrekordbox import Rekordbox6Database
-
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Rekordbox6Database(path=str(copy_db(Path(tmp))), unlock=True)
-
+    db = open_copy()
+    try:
         cues_by_track: dict[str, list] = defaultdict(list)
         for c in db.get_cue():
             cues_by_track[str(c.ContentID)].append(c)
@@ -244,6 +214,8 @@ def export(only: str | None = None, scope: list[str] | None = None) -> dict:
                     "cues": cues,
                 }
             )
+    finally:
+        db.close()
 
     # 優先プレイリストの曲を先頭に
     tracks.sort(key=lambda x: (not x["priority"], x["title"]))

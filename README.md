@@ -89,8 +89,7 @@ python3 -m venv .venv
 ### 4. rekordbox のキューを流し込む
 
 ```bash
-./.venv/bin/python tools/rb_export.py            # master.db を読んで data/rekordbox.json に書く
-./.venv/bin/python tools/sync.py --dry-run       # Notion との差分を出す（何も書かない）
+./.venv/bin/python tools/sync.py --dry-run       # master.db を読んで Notion との差分を出す（何も書かない）
 ./.venv/bin/python tools/sync.py                 # 1 件ずつ y/n/a/q で承認して書く
 ```
 
@@ -120,7 +119,9 @@ Vercel に置くなら、`web/` をルートにしてデプロイし、[`web/.en
 3. アプリの「入力」から繋ぎを記録する
 4. プレイ中はパフォーマンスモードで開く
 
-参照が壊れた繋ぎや要確認の行は `tools/sync.py --dry-run` が出す（「状態」画面は 2026-10-04 に外した）。
+参照が壊れた繋ぎ（From曲/To曲 が空・消えた曲やキューを指している）と `同期ステータス = 要確認` の行は、
+`tools/sync.py`（`--dry-run` でも）が最後に「🔀Transitions の要確認」として毎回出す。sync は読むだけで直さないので、
+アプリの編集（`/new?edit=`）か Notion で直す（「状態」画面は 2026-10-04 に外した）。
 
 ### イベントのプレイリストを rekordbox に書き出す
 
@@ -189,7 +190,11 @@ docs/    設計メモ
 ## 注意
 
 - 🎵 Tracks と 📍 Cues は機械が管理する鏡。Notion 側で手編集しても次の同期で上書きされる。直すのは rekordbox 側
-- master.db へ書き込むのは `tools/rb_tags.py`（曲名・アーティスト・ジャンル）・`tools/rb_mytag.py`（My Tag）・`tools/rb_playlist.py`（プレイリスト）。rekordbox を終了してから回す。`rb_tags.py` は書く前に自動でバックアップを取る。Pioneer 非公式なので自己責任
+- master.db へ書き込むのは `tools/rb_tags.py`（曲名・アーティスト・ジャンル）・`tools/rb_mytag.py`（My Tag）・`tools/rb_playlist.py`（プレイリスト）・`tools/rb_cue_color.py`（キューの色）。rekordbox を終了してから回す。
+  どれも `tools/rb_db.py` を通り、rekordbox が起動中なら止め（書く前と commit の直前の2回見る）、書く前に
+  `~/Library/Pioneer/rekordbox_backups_rekord_graph/<日時>/` へ master.db を丸ごとバックアップする。
+  master.db の場所は全ツール共通で `REKORDBOX_DIR`。読むだけのときはコピーを `<一時ディレクトリ>/rekord_graph/` に作り、
+  新しい2つだけ残して古いものは自動で消す。Pioneer 非公式なので自己責任
 - `tools/migrate_transitions.py` は作者の手書きメモを取り込んだ一回きりのツール。参考実装として置いてある
 
 ## ライセンス

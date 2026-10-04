@@ -9,7 +9,8 @@
 - 曲は rekordbox の ContentID で引く。見つからない曲があるプレイリストは**書かずに**報告する
   （抜けたまま書くと、番号が詰まって気付けない）
 - 既定は何も書かない（コピーで確かめるだけ。コミットもしない）。`--apply` で実機に書く。
-  **rekordbox を終了してから**（起動中は pyrekordbox が書き込みを拒む）。書いた後に読み直して、
+  **rekordbox を終了してから**（起動中なら開く前に止める。書く前に master.db を丸ごとバックアップする。
+  `tools/rb_db.py`）。書いた後に読み直して、
   並びと番号 1..N を確かめる
 
     ./.venv/bin/python tools/rb_playlist.py                 # 何が変わるかを見るだけ
@@ -29,11 +30,10 @@ from __future__ import annotations
 import argparse
 import pathlib
 import sys
-import tempfile
 
-sys.path.insert(0, "tools")
-import notion_api as na
-import rb_export
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import notion_api as na  # noqa: E402
+import rb_db  # noqa: E402
 
 FOLDER = "rekord_graph"
 
@@ -75,8 +75,7 @@ def pick_hops(ids: list[str]) -> list[str | None]:
 
 
 def import_playlist(name: str, apply: bool) -> int:
-    from pyrekordbox import Rekordbox6Database
-    db = Rekordbox6Database(path=str(rb_export.copy_db(pathlib.Path(tempfile.mkdtemp()))), unlock=True)
+    db = rb_db.open_copy()  # 読むだけ（rekordbox 起動中でもよい）
     found = db.get_playlist(Name=name, Attribute=0).all()
     if len(found) != 1:
         print(f"rekordbox に「{name}」というプレイリストが{'ありません' if not found else f'{len(found)}つあります'}", file=sys.stderr)
@@ -132,9 +131,14 @@ def main() -> int:
         print(f"同じ名前のプレイリストが Notion に複数あります（どちらを書くか決められない）: {dup}", file=sys.stderr)
         return 1
 
-    path = rb_export.RB_DIR / "master.db" if args.apply else rb_export.copy_db(pathlib.Path(tempfile.mkdtemp()))
-    from pyrekordbox import Rekordbox6Database
-    db = Rekordbox6Database(path=str(path), unlock=True)
+    if args.apply:
+        # 実機を開く前に: 起動中なら止める → 丸ごとバックアップ（rb_tags.py と同じ流儀）。
+        # 以前は確認が commit のときの pyrekordbox 任せで、バックアップも無かった
+        rb_db.refuse_if_running()
+        print(f"バックアップ: {rb_db.backup()}")
+        db = rb_db.open_live()
+    else:
+        db = rb_db.open_copy()  # コピーで試すだけ（commit しない）
 
     folder = db.get_playlist(Name=FOLDER, ParentID="root", Attribute=1).one_or_none()
     if folder is None:
@@ -168,11 +172,14 @@ def main() -> int:
         print("\n（試しただけ）--apply で実機に書きます。rekordbox を終了してから")
         return 0
     if not written:
+        db.close()
         return 0
+    rb_db.refuse_if_running()  # commit の直前にもう一度
     db.commit()
+    db.close()
 
     # 読み直して、並びと番号 1..N を確かめる
-    db = Rekordbox6Database(path=str(path), unlock=True)
+    db = rb_db.open_live()
     folder = db.get_playlist(Name=FOLDER, ParentID="root", Attribute=1).one()
     bad = 0
     for name, ids in written:

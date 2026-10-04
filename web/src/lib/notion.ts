@@ -1,6 +1,7 @@
 import "server-only";
 import fs from "node:fs";
 import os from "node:os";
+import { revalidateTag } from "next/cache";
 
 /**
  * Notion API への唯一の出口。外部サービスはここだけに閉じ込める（差し替え可能にしておく）。
@@ -89,6 +90,27 @@ export const NOTION_TAG = "notion";
  */
 export const dbTag = (dbId: string) => `notion:db:${dbId}`;
 
+/**
+ * DB ごとの「書いた回数」。書くたびに上げ、`lib/graph.ts` の読み込みのまとめ役（`readOnce`）が鍵に混ぜる。
+ *
+ * まとめ役は「同時に走っている読み込みを1本にする」ので、**書く前に始まった読み込み**を
+ * 書いた後に来た画面まで受け取ってしまう。その古い中身が `unstable_cache` に新しい顔で入り、
+ * 最大5分、書いたはずの繋ぎが見えない。回数が変われば鍵が変わるので、書いた後の読み込みは別に走る。
+ * 数はサーバのインスタンスごと（Vercel では関数ごとに別）だが、書いたインスタンスの中で
+ * 古い読み込みを掴まなければ足りる（他のインスタンスは `revalidateTag` の側で捨てられる）
+ */
+const writeGen = new Map<string, number>();
+export const dbGeneration = (dbId: string): number => writeGen.get(dbId) ?? 0;
+
+/**
+ * アプリが DB に書いた後に必ず呼ぶ。読み取りキャッシュ（`dbTag`）を捨て、書いた回数を上げる。
+ * `revalidateTag` を直接呼ぶと回数を上げ忘れるので、書いた後の後始末はここだけにする
+ */
+export function invalidateDb(dbId: string): void {
+  writeGen.set(dbId, dbGeneration(dbId) + 1);
+  revalidateTag(dbTag(dbId), { expire: 0 });
+}
+
 function token(): string {
   const fromEnv = process.env.NOTION_TOKEN;
   if (fromEnv) return fromEnv;
@@ -100,6 +122,41 @@ function token(): string {
     return fs.readFileSync(`${dir}/notion_token`, "utf8").trim();
   } catch {
     throw new Error("NOTION_TOKEN が設定されていません（README「セットアップ」）");
+  }
+}
+
+/** Notion が失敗を返した。`status` / `code` で「無い」と「今は繋がらない」を見分ける */
+export class NotionError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string | null) {
+    super(message);
+    this.name = "NotionError";
+  }
+}
+
+/**
+ * 「その ID の行は無い」と言い切れる失敗か。404（object_not_found）と、ID の形が違うときの
+ * 400（validation_error）だけ。429・5xx・回線の失敗は「無い」ではない —
+ * ここを false に倒すと、混んでいるだけで API が 404「見つかりません」を返してしまう
+ */
+export function isNotFound(e: unknown): boolean {
+  return e instanceof NotionError
+    && (e.status === 404 || (e.status === 400 && e.code === "validation_error"));
+}
+
+/** Notion に今は繋がらない（429・5xx・回線）。API はこれを 503 で返す（404 と区別する） */
+export const notionUnavailable = () =>
+  Response.json({ error: "Notion に繋がりません。少し待ってからもう一度押してください" }, { status: 503 });
+
+/**
+ * API の処理を包み、投げられた失敗を 503 にする。lib は「無い」と言い切れるときだけ null/false を返し、
+ * それ以外は投げる — ここで 404 にすると、画面は消された行だと思って選択を外してしまう
+ */
+export async function orUnavailable(run: () => Promise<Response>): Promise<Response> {
+  try {
+    return await run();
+  } catch (e) {
+    console.error(e);
+    return notionUnavailable();
   }
 }
 
@@ -177,24 +234,34 @@ async function send<T>(
       await new Promise((r) => setTimeout(r, wait));
       continue;
     }
-    if (!res.ok) throw new Error(`Notion ${path}: ${res.status} ${await res.text()}`);
+    if (!res.ok) {
+      const body = await res.text();
+      let code: string | null = null;
+      try { code = (JSON.parse(body) as { code?: string }).code ?? null; } catch { /* 本文が JSON でない */ }
+      throw new NotionError(`Notion ${path}: ${res.status} ${body}`, res.status, code);
+    }
     return res.json() as Promise<T>;
   }
 }
 
-async function queryPage(dbId: string, cursor?: string, fresh?: boolean) {
+async function queryPage(dbId: string, cursor?: string, fresh?: boolean, sorts?: unknown[]) {
   return request<{ results: NotionPage[]; has_more: boolean; next_cursor: string | null }>(
     `/databases/${dbId}/query`,
-    { method: "POST", body: { page_size: 100, ...(cursor ? { start_cursor: cursor } : {}) }, fresh, tags: [dbTag(dbId)] },
+    {
+      method: "POST",
+      body: { page_size: 100, ...(sorts ? { sorts } : {}), ...(cursor ? { start_cursor: cursor } : {}) },
+      fresh,
+      tags: [dbTag(dbId)],
+    },
   );
 }
 
-/** データベースの全行を取得する（ページネーション込み）。 */
-export async function queryAll(dbId: string, fresh?: boolean): Promise<NotionPage[]> {
+/** データベースの全行を取得する（ページネーション込み）。`sorts` は Notion の query にそのまま渡す */
+export async function queryAll(dbId: string, fresh?: boolean, sorts?: unknown[]): Promise<NotionPage[]> {
   const out: NotionPage[] = [];
   let cursor: string | undefined;
   do {
-    const page = await queryPage(dbId, cursor, fresh);
+    const page = await queryPage(dbId, cursor, fresh, sorts);
     out.push(...page.results);
     cursor = page.has_more ? page.next_cursor ?? undefined : undefined;
   } while (cursor);

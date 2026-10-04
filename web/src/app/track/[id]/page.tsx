@@ -7,7 +7,34 @@ import { TransitionCard } from "@/components/TransitionCard";
 import { TransitionDetails } from "@/components/TransitionDetails";
 import { cueLabel, cueOf } from "@/lib/format";
 import { bpmDelta, formatPosition, getGraph, type Graph, type Transition } from "@/lib/graph";
+import { KEY_MATCH_LABEL, KEY_MATCH_TITLE, keyDistance, keyMatch } from "@/lib/key";
 import { longestRouteFrom } from "@/lib/route";
+
+/** 「まだ繋いでいない近い曲」に出す BPM のずれの上限（%）と件数 */
+const NEAR_BPM_PCT = 6;
+const NEAR_MAX = 6;
+
+/**
+ * この曲から**まだ繋ぎを記録していない**曲のうち、BPM（±6% 以内）とキーが近いもの。
+ * 次に練習・記録する繋ぎの候補。同じ曲（リミックス違い含む = songId）は出さない。
+ * 並びは「キーの遠さ ＋ BPM のずれ/2」が小さい順（キー1段 = BPM 2%）→ BPM のずれ → 曲名。同じ曲は1つだけ
+ */
+function nearUnlinked(g: Graph, id: string) {
+  const me = g.trackById.get(id);
+  if (!me?.bpm) return [];
+  const linked = new Set((g.outgoing.get(id) ?? []).map((t) => t.toTrackId));
+  return g.tracks
+    .filter((t) => t.id !== id && t.songId !== me.songId && !linked.has(t.id))
+    .flatMap((t) => {
+      const d = bpmDelta(me.bpm, t.bpm);
+      if (d == null || Math.abs(d) > NEAR_BPM_PCT) return [];
+      return [{ track: t, delta: d, match: keyMatch(me.musicalKey, t.musicalKey), score: Math.abs(d) / 2 + keyDistance(me.musicalKey, t.musicalKey) }];
+    })
+    .sort((a, b) => a.score - b.score || Math.abs(a.delta) - Math.abs(b.delta) || a.track.name.localeCompare(b.track.name, "ja"))
+    // 同じ曲のリミックス違いは、いちばん近い1つだけ（6枠が1曲で埋まらないように）
+    .filter((x, i, all) => all.findIndex((y) => y.track.songId === x.track.songId) === i)
+    .slice(0, NEAR_MAX);
+}
 
 /** パンくず。リロードしても DJ 中の文脈が消えないよう URL に持たせる。 */
 const parsePath = (raw: unknown): string[] =>
@@ -54,6 +81,7 @@ export default async function TrackPage({
   const incoming = g.incoming.get(id) ?? [];
   const route = longestRouteFrom(g, id);
   const cues = g.cuesByTrack.get(id) ?? [];
+  const near = nearUnlinked(g, id);
 
   return (
     <main className="relative z-1 mx-auto max-w-6xl px-4 pb-nav lg:px-8">
@@ -148,7 +176,7 @@ export default async function TrackPage({
                       </span>
                       <LoopTag cue={c} />
                     </span>
-                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                    <span className="shrink-0 font-mono text-[12px] tabular-nums text-fg-subtle">
                       {formatPosition(c.positionMs)}
                     </span>
                   </li>
@@ -176,7 +204,7 @@ export default async function TrackPage({
                             {cueLabel(cueOf(g.cueById, t.fromCueId))} → {cueLabel(cueOf(g.cueById, t.toCueId))}
                           </span>
                         </span>
-                        <span className="shrink-0 font-mono text-[11px] tabular-nums text-fg-subtle">
+                        <span className="shrink-0 font-mono text-[13px] tabular-nums text-fg-subtle">
                           {from?.bpm ?? "–"}
                         </span>
                       </Link>
@@ -235,6 +263,37 @@ export default async function TrackPage({
                 </Link>
               </div>
             </section>
+
+            {/* 次に記録する繋ぎの候補。押すと両方の曲が入った入力画面が開く */}
+            {near.length > 0 && (
+              <section data-edit>
+                <h2 className="label mb-2" title={`この曲から繋ぎが無く、BPM が ±${NEAR_BPM_PCT}% 以内の曲。キーが近い順`}>
+                  まだ繋いでいない近い曲
+                </h2>
+                <ul className="rounded-card border border-border bg-surface divide-y divide-border">
+                  {near.map(({ track: t, delta, match }) => (
+                    <li key={t.id}>
+                      <Link
+                        href={`/new?from=${id}&to=${t.id}`}
+                        className="flex items-center gap-2.5 px-3 py-2 transition-colors hover:bg-surface-2"
+                      >
+                        <span className="min-w-0 flex-1 break-words text-[13.5px]">{t.name}</span>
+                        <span className="shrink-0 font-mono text-[13px] tabular-nums text-fg-subtle">
+                          {t.bpm} ({delta >= 0 ? "+" : "−"}{Math.abs(delta).toFixed(1)}%)
+                          {t.musicalKey && <> · {t.musicalKey}</>}
+                        </span>
+                        {match && (
+                          <span title={KEY_MATCH_TITLE[match]} className="shrink-0 text-[12px] text-fg-muted">
+                            {KEY_MATCH_LABEL[match]}
+                          </span>
+                        )}
+                        <span className="shrink-0 text-[12px] text-fg-subtle">＋</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
           </div>
         </aside>
       </div>

@@ -19,20 +19,22 @@
     ./.venv/bin/python tools/rb_mytag.py            # コピーで試すだけ
     ./.venv/bin/python tools/rb_mytag.py --apply    # 実機に書く（rekordbox を終了してから）
 
+`--apply` は rekordbox が起動中なら開く前に止め、書く前に master.db を丸ごとバックアップする
+（`tools/rb_db.py`。rb_tags.py と同じ）。
+
 `--plan <表.json>` なら、人が確かめた分類表どおりに原曲タグを足す（アニメ / VOCALOID /
 J-POP / K-POP / クラシック / 東方 / インターネット音楽 …。無いタグは作る）。
 表は個人データなので `data/` に置く（git に入れない）。
 
     ./.venv/bin/python tools/rb_mytag.py --plan data/mytag_plan.json [--apply]
 """
-import argparse, json, pathlib, sys, tempfile
+import argparse, json, pathlib, sys
 from datetime import datetime
 from uuid import uuid4
 
-sys.path.insert(0, "tools")
-import rb_export
-from pyrekordbox import Rekordbox6Database
-from pyrekordbox.db6 import tables
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import rb_db  # noqa: E402
+from pyrekordbox.db6 import tables  # noqa: E402
 
 CATEGORY = "原曲"
 # 4列目の初期名。これを CATEGORY に改名して使う
@@ -122,14 +124,31 @@ def run_plan(db, cat: tables.DjmdMyTag, plan: pathlib.Path) -> int:
     return n
 
 
-def run(db_path: pathlib.Path, apply: bool, plan: pathlib.Path | None = None) -> int:
-    # `path=` で開く（`db_dir=` は効かず実機が開かれる。rb_tags.py の注意と同じ）
-    db = Rekordbox6Database(path=str(db_path), unlock=True)
+def run(apply: bool, plan: pathlib.Path | None = None) -> int:
+    if apply:
+        # 実機を開く前に: 起動中なら止める → 丸ごとバックアップ（rb_tags.py と同じ流儀）
+        rb_db.refuse_if_running()
+        print(f"バックアップ: {rb_db.backup()}")
+        db = rb_db.open_live()
+    else:
+        db = rb_db.open_copy()  # コピーで試すだけ（commit しない）
+    try:
+        return _run(db, apply, plan)
+    finally:
+        db.close()
+
+
+def _commit(db) -> None:
+    rb_db.refuse_if_running()  # commit の直前にもう一度
+    db.commit()
+
+
+def _run(db, apply: bool, plan: pathlib.Path | None) -> int:
     cat = category(db)
     if plan:
         n = run_plan(db, cat, plan)
         if apply:
-            db.commit()
+            _commit(db)
             print(f"\n✓ {n} 曲にタグを足しました")
         else:
             print(f"\n（コピーでの試行）{n} 曲にタグが足されます。--apply で実機に書きます")
@@ -149,7 +168,7 @@ def run(db_path: pathlib.Path, apply: bool, plan: pathlib.Path | None = None) ->
             print(f"      ジャンル     {genre!r} → ''")
             c.GenreID = None
     if apply:
-        db.commit()
+        _commit(db)
         print(f"\n✓ {n} 曲を master.db に書きました")
     else:
         print(f"\n（コピーでの試行）{n} 曲が変わります。--apply で実機に書きます")
@@ -161,7 +180,4 @@ if __name__ == "__main__":
     ap.add_argument("--apply", action="store_true", help="実機の master.db に書く")
     ap.add_argument("--plan", type=pathlib.Path, help="分類表（JSON）どおりに原曲タグを足す")
     args = ap.parse_args()
-    if args.apply:
-        run(rb_export.RB_DIR / "master.db", True, args.plan)
-    else:
-        run(rb_export.copy_db(pathlib.Path(tempfile.mkdtemp())), False, args.plan)
+    run(args.apply, args.plan)

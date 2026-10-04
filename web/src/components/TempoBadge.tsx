@@ -10,7 +10,7 @@ export function TempoBadge({ from, to }: { from: number | null; to: number | nul
   const easy = Math.abs(d) <= 3;
   return (
     <span
-      className={`font-mono text-[11px] tabular-nums rounded px-1.5 py-0.5 border ${
+      className={`font-mono text-[12px] tabular-nums rounded px-1.5 py-0.5 border ${
         easy ? "text-accent border-accent/40 bg-accent/10" : "text-fg-subtle border-border"
       }`}
       title={easy ? "ピッチをほぼ触らずに合う" : "ピッチ調整が要る"}

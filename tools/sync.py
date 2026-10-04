@@ -113,6 +113,14 @@ _RB_TRACKS: dict[str, dict] = {}  # rekordbox の曲ID -> 曲情報（🎵Tracks
 # ライブラリにはあるが rekordbox.scopePlaylists / folderFilter で外した曲ID。
 # 「rekordbox から消えた」とは別物なので、この曲の行（曲・キュー）は消さずにそのまま残す
 _OUT_OF_SCOPE: set[str] = set()
+# 記号を判定できないホットキュー（rekordbox の Kind=4）の UUID。同期はしないが実機には在るので、
+# 同じ UUID の行が Notion にあっても「消えたキュー」として扱わない（消すと繋ぎの参照が切れる）
+_UNSYNCED_UUIDS: set[str] = set()
+
+
+def pid(page_id: str | None) -> str:
+    """Notion のページID を比較用にそろえる（ハイフンあり/なしの両方が来る）。"""
+    return (page_id or "").replace("-", "")
 
 
 def load_rekordbox() -> dict[str, dict]:
@@ -123,6 +131,7 @@ def load_rekordbox() -> dict[str, dict]:
     _RB_TRACKS.clear()
     _OUT_OF_SCOPE.clear()
     _OUT_OF_SCOPE.update(data["outOfScope"])
+    _UNSYNCED_UUIDS.clear()
     out = {}
     unknown = []
     for t in tracks:
@@ -134,7 +143,9 @@ def load_rekordbox() -> dict[str, dict]:
                 # 記号を判定できないホットキュー（rekordbox の Kind=4。rb_export の cue_letter）。
                 # 記号なしで足すと Notion が select を弾いて同期が途中で止まるうえ、
                 # どのパッドか分からないキューを繋ぎの候補に出すことになる。足さずに毎回知らせる
+                # ただし Notion に同じ UUID の行が残っていても消さない（build_plan が _UNSYNCED_UUIDS を見る）
                 unknown.append(f"{names[t['id']]} {ms_to_str(c['positionMs'])}「{c['name'] or '名前なし'}」")
+                _UNSYNCED_UUIDS.add(c["uuid"])
                 continue
             out[c["uuid"]] = {
                 "trackId": t["id"],
@@ -156,7 +167,9 @@ def load_rekordbox() -> dict[str, dict]:
 def load_notion() -> dict[str, dict]:
     """UUID -> Notion 上の現在値。"""
     out = {}
+    _CUE_PAGE_IDS.clear()
     for page in na.query_all(CUES):
+        _CUE_PAGE_IDS.add(pid(page["id"]))
         p = page["properties"]
         uuid = na.plain(p.get("cueUUID"))
         if not uuid:
@@ -210,9 +223,11 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
         })
 
     # 範囲外の曲（プレイリストから外しただけ）のキューは消さない。曲ページID で引くので先に引いておく
-    kept_pages = {page_id.replace("-", "") for rbid, page_id in _track_pages().items() if rbid in _OUT_OF_SCOPE}
+    kept_pages = {pid(page_id) for rbid, page_id in _track_pages().items() if rbid in _OUT_OF_SCOPE}
     for uuid, n in nt.items():
-        if uuid not in rb and (n["trackPageId"] or "").replace("-", "") not in kept_pages:
+        if uuid in _UNSYNCED_UUIDS:
+            continue  # 記号を判定できないだけで実機には在る（Kind=4）。消さない
+        if uuid not in rb and pid(n["trackPageId"]) not in kept_pages:
             plan.append({"kind": "delete", "uuid": uuid, "notion": n,
                          "summary": f"rekordbox から消えたキュー: {n['title']}"})
 
@@ -222,9 +237,9 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
     # 消すと繋ぎのリンクが切れ、アプリからその繋ぎごと見えなくなる（壊れた参照は「キュー未定」とも別物として扱う）。
     # 人が繋ぎのキューを選び直すまで「削除(保留)」として毎回見せる（曲行の track_hold と同じ扱い）
     if any(p["kind"] == "delete" for p in plan):
-        cue_refs = {r.replace("-", "") for r in _transition_cue_refs()}
+        cue_refs = _transition_cue_refs()
         for p in plan:
-            if p["kind"] == "delete" and p["notion"]["pageId"].replace("-", "") in cue_refs:
+            if p["kind"] == "delete" and pid(p["notion"]["pageId"]) in cue_refs:
                 p["kind"] = "hold"
                 p["summary"] += "（🔀Transitions から参照あり）"
 
@@ -271,14 +286,14 @@ def build_plan(rb: dict, nt: dict) -> list[dict]:
     stale = {page_id: rbid for rbid, page_id in pages.items()
              if rbid not in _RB_TRACKS and rbid not in _OUT_OF_SCOPE}
     if stale:
-        live_cues = {n["trackPageId"] for n in nt.values()}
+        live_cues = {pid(n["trackPageId"]) for n in nt.values()}
         refs = _transition_track_refs()
         for page_id, rbid in stale.items():
             title = _TRACK_TITLES.get(page_id) or rbid
-            if page_id in live_cues:
+            if pid(page_id) in live_cues:
                 plan.append({"kind": "track_hold", "pageId": page_id,
                              "summary": f"rekordbox から消えた曲: {title}（キュー行が残っているため保留）"})
-            elif page_id in refs:
+            elif pid(page_id) in refs:
                 plan.append({"kind": "track_hold", "pageId": page_id,
                              "summary": f"rekordbox から消えた曲: {title}（🔀Transitions から参照あり。人が確認）"})
             else:
@@ -352,7 +367,7 @@ def rekey(plan: list[dict]) -> None:
     # 🔀Transitions から参照されている行を生かして結ぶ。参照を切らないことが rekey の目的なので、
     # 参照の無い方を削除に回すのは推測ではない（実例: ヤラララ E/F「1サビ終ル」が同位置 → D に打ち直し）
     cue_refs = _transition_cue_refs()
-    try_match(lambda n, r: same_pos(n, r) and same_name(n, r) and n["pageId"] in cue_refs,
+    try_match(lambda n, r: same_pos(n, r) and same_name(n, r) and pid(n["pageId"]) in cue_refs,
               "位置とキュー名が一致（同位置同名が複数。繋ぎから参照されている行を選択）")
     try_match(same_pos, "位置が一致")
     # 「1サビ終受け」→「1サビ終」のように名前を削った/足した場合。位置が同じなら前方一致で結ぶ
@@ -515,6 +530,9 @@ def apply(item: dict) -> None:
 
 
 _TRACK_PAGES: dict[str, str] | None = None
+_TRACK_PAGE_IDS: set[str] = set()   # 🎵Tracks の生きている全ページID（pid 済み。壊れた参照の確認用）
+_CUE_PAGE_IDS: set[str] = set()     # 📍Cues の生きている全ページID（pid 済み。load_notion が埋める）
+_TRANSITIONS: list[dict] | None = None  # 🔀Transitions の全ページ（1回の実行で1度だけ読む）
 _TRACK_TITLES: dict[str, str] = {}  # Notion の曲ページID -> 曲名（消えた曲を人に見せるときに使う）
 _TRACK_NOW: dict[str, dict] = {}    # rekordbox の曲ID -> Notion 上の現在値（更新の差分用）
 
@@ -525,6 +543,7 @@ def _track_pages() -> dict[str, str]:
     if _TRACK_PAGES is None:
         _TRACK_PAGES = {}
         for page in na.query_all(na.CONFIG["tracks"]):
+            _TRACK_PAGE_IDS.add(pid(page["id"]))
             p = page["properties"]
             rid = na.plain(p.get("rekordboxID"))
             if rid:
@@ -545,12 +564,24 @@ def _track_pages() -> dict[str, str]:
     return _TRACK_PAGES
 
 
+def _transitions() -> list[dict]:
+    """🔀Transitions の全ページ。参照確認・rekey・壊れた参照の確認で使い回す（以前は1回の実行で最大3回読んでいた）。"""
+    global _TRANSITIONS
+    if _TRANSITIONS is None:
+        _TRANSITIONS = na.query_all(na.CONFIG["transitions"])
+    return _TRANSITIONS
+
+
+def _rel_ids(p: dict, key: str) -> list[str]:
+    return [pid(r["id"]) for r in ((p.get(key) or {}).get("relation") or [])]
+
+
 def _transition_refs(keys: tuple[str, str]) -> set[str]:
+    """参照しているページID（pid 済み）。"""
     refs: set[str] = set()
-    for page in na.query_all(na.CONFIG["transitions"]):
-        p = page["properties"]
+    for page in _transitions():
         for key in keys:
-            refs.update(r["id"] for r in ((p.get(key) or {}).get("relation") or []))
+            refs.update(_rel_ids(page["properties"], key))
     return refs
 
 
@@ -562,6 +593,45 @@ def _transition_track_refs() -> set[str]:
 def _transition_cue_refs() -> set[str]:
     """🔀Transitions が Fromキュー/Toキュー で参照しているキューページID。rekey の最終タイブレーク。"""
     return _transition_refs(("Fromキュー", "Toキュー"))
+
+
+def broken_transitions() -> list[tuple[str, list[str]]]:
+    """🔀Transitions のうち、人が直す必要がある行（読むだけ。何も書かない）。
+
+    - From曲 / To曲 が空、または消えた（アーカイブ済み・存在しない）🎵Tracks を指している
+      （Notion はゴミ箱のページへの関連を落として返すことがあるので、曲が空も壊れた扱い。曲は必須）
+    - Fromキュー / Toキュー が消えた 📍Cues を指している（空は「キュー未定」で正常）
+    - 同期ステータス = 要確認
+    戻り値は (繋ぎの名前, 理由の一覧)。_track_pages() と load_notion() の後に呼ぶ
+    """
+    _track_pages()
+    out = []
+    for page in _transitions():
+        p = page["properties"]
+        why = []
+        for key in ("From曲", "To曲"):
+            ids = _rel_ids(p, key)
+            if not ids:
+                why.append(f"{key}が空")
+            elif any(i not in _TRACK_PAGE_IDS for i in ids):
+                why.append(f"{key}が消えた曲を指している")
+        for key in ("Fromキュー", "Toキュー"):
+            if any(i not in _CUE_PAGE_IDS for i in _rel_ids(p, key)):
+                why.append(f"{key}が消えたキューを指している")
+        if na.select_name(p.get("同期ステータス")) == "要確認":
+            why.append("同期ステータス=要確認")
+        if why:
+            title = na.plain(p.get("つなぎ")) or page.get("url") or page["id"]
+            out.append((title, why))
+    return sorted(out)
+
+
+def show_broken(rows: list[tuple[str, list[str]]]) -> None:
+    # 0件でも1行出す（「確かめて無かった」と「確かめていない」を見分けるため）
+    print(f"\n── 🔀Transitions の要確認 {len(rows)} 件（{len(_transitions())} 行を確認。"
+          "sync は書き込まない。アプリの /new?edit= か Notion で直す）")
+    for title, why in rows:
+        print(f"  ⚠ {title}: {' / '.join(why)}")
 
 
 def _track_page(rekordbox_id: str) -> str:
@@ -592,9 +662,12 @@ def main() -> int:
     plan = build_plan(rb, nt)
     # 通知（位置のみ）と保留は見せるだけで書かない（--yes でも ✓ を付けない）
     actionable = [p for p in plan if p["kind"] not in ("notice", "hold", "track_hold")]
+    # 🔀Transitions の壊れた参照・要確認（読むだけ。差分が無いときも毎回出す）
+    broken = broken_transitions()
 
     if not plan:
         print("\n差分はありません。Notion と rekordbox は一致しています。")
+        show_broken(broken)
         return 0
 
     counts = {k: sum(1 for p in plan if p["kind"] == k) for k in LABEL}
@@ -602,6 +675,7 @@ def main() -> int:
 
     for i, item in enumerate(plan, 1):
         show(item, i, len(plan))
+    show_broken(broken)
 
     if args.dry_run:
         print("\n--dry-run のため何も書き込みませんでした。")
@@ -611,20 +685,9 @@ def main() -> int:
         return 0
 
     print("\n" + "=" * 60)
-    approved = []
-    for i, item in enumerate(actionable, 1):
-        if args.yes:
-            approved.append(item)
-            continue
-        show(item, i, len(actionable))
-        ans = input("        反映しますか？ [y]es / [n]o / [a]ll / [q]uit > ").strip().lower()
-        if ans == "q":
-            break
-        if ans == "a":
-            approved.extend(actionable[i - 1:])
-            break
-        if ans in ("y", "yes"):
-            approved.append(item)
+    approved, auto_skipped = approve(actionable, args.yes)
+    for item in auto_skipped:
+        print(f"  - 飛ばしました（曲追加を承認していない曲のキュー）: {item['summary']}")
 
     if not approved:
         print("\n何も反映しませんでした。")
@@ -633,14 +696,81 @@ def main() -> int:
     ensure_loop_columns()   # ループ列が無いワークスペースでは、ここで1度だけ生える
     ensure_track_columns()  # 同じくジャンル・マイタグ列
     print(f"\n{len(approved)} 件を Notion に反映します…")
-    for item in approved:
-        apply(item)
-        print(f"  ✓ {LABEL[item['kind']]}  {item['summary']}")
+    failed = apply_all(approved)
 
     skipped = len(actionable) - len(approved)
     if skipped:
         print(f"\n{skipped} 件は保留のままです。次回の sync でまた出ます。")
+    if failed:
+        print(f"\n✗ {len(failed)} 件は書けませんでした（ほかは反映済み。次回の sync でまた出ます）:", file=sys.stderr)
+        for item, err in failed:
+            print(f"  ✗ {LABEL[item['kind']]}  {item['summary']}: {err}", file=sys.stderr)
+        return 1
     return 0
+
+
+def _needs_track_add(item: dict) -> bool:
+    """キューの「追加」で、曲の行が 🎵Tracks にまだ無い（= 同じ実行の「曲追加」が先に要る）。"""
+    return item["kind"] == "add" and item["rb"]["trackId"] not in _track_pages()
+
+
+def approve(actionable: list[dict], yes: bool) -> tuple[list[dict], list[dict]]:
+    """承認された項目と、自動で飛ばした項目を返す。
+
+    「曲追加」を断った（または q で止めた）曲のキューの「追加」は、聞かずに飛ばす —
+    曲の行が無いので書けない（以前は承認すると NotionError で全体が止まり、まとめも出なかった）。
+    「曲追加」は並び順でキューの「追加」より前に来るので、キューに着いた時点で判断は済んでいる。
+    """
+    approved: list[dict] = []
+    auto_skipped: list[dict] = []
+    track_ok: set[str] = set()  # 承認された「曲追加」の曲ID
+
+    def take(item: dict) -> None:
+        if _needs_track_add(item) and item["rb"]["trackId"] not in track_ok:
+            auto_skipped.append(item)
+            return
+        if item["kind"] == "track_add":
+            track_ok.add(item["track"]["id"])
+        approved.append(item)
+
+    for i, item in enumerate(actionable, 1):
+        if yes:
+            take(item)
+            continue
+        if _needs_track_add(item) and item["rb"]["trackId"] not in track_ok:
+            auto_skipped.append(item)
+            continue
+        show(item, i, len(actionable))
+        ans = input("        反映しますか？ [y]es / [n]o / [a]ll / [q]uit > ").strip().lower()
+        if ans == "q":
+            break
+        if ans == "a":
+            for rest in actionable[i - 1:]:
+                take(rest)
+            break
+        if ans in ("y", "yes"):
+            take(item)
+    return approved, auto_skipped
+
+
+def apply_all(approved: list[dict]) -> list[tuple[dict, str]]:
+    """1件ずつ書く。1件の失敗で残りを止めない。失敗した (項目, 理由) を返す。"""
+    failed: list[tuple[dict, str]] = []
+    failed_tracks: set[str] = set()
+    for item in approved:
+        if item["kind"] == "add" and item["rb"]["trackId"] in failed_tracks:
+            failed.append((item, "曲追加が失敗したため飛ばしました"))
+            continue
+        try:
+            apply(item)
+        except Exception as e:  # noqa: BLE001 — Ctrl-C（KeyboardInterrupt）は止めない
+            failed.append((item, str(e)))
+            if item["kind"] == "track_add":
+                failed_tracks.add(item["track"]["id"])
+            print(f"  ✗ {LABEL[item['kind']]}  {item['summary']}: {e}", file=sys.stderr)
+            continue
+        print(f"  ✓ {LABEL[item['kind']]}  {item['summary']}")
+    return failed
 
 
 if __name__ == "__main__":

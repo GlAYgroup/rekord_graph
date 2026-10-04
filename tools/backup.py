@@ -44,12 +44,11 @@ import plistlib
 import shutil
 import subprocess
 import sys
-import tempfile
 import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from rb_export import RB_DIR, copy_db  # noqa: E402
+from rb_db import RB_DIR, open_copy, rekordbox_running  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 ICLOUD = Path.home() / "Library/Mobile Documents/com~apple~CloudDocs"
@@ -67,10 +66,6 @@ PLIST = Path.home() / "Library/LaunchAgents" / f"{LABEL}.plist"
 LOG = Path.home() / "Library/Logs/rekord_graph_backup.log"
 
 
-def rekordbox_running() -> bool:
-    return subprocess.run(["pgrep", "-x", "rekordbox"], capture_output=True).returncode == 0
-
-
 def skip_secret(name: str) -> bool:
     """アカウントのトークン類。自分の iCloud でも、置いておく理由が無い。"""
     return "tkn" in name or "Grant" in name or name == "rb_guser"
@@ -83,14 +78,11 @@ def key(p: Path | str) -> str:
 
 def track_paths() -> list[Path]:
     """master.db が参照している曲ファイル（Spotify 等のストリーミングは除く）。"""
-    from pyrekordbox import Rekordbox6Database
-
-    with tempfile.TemporaryDirectory() as tmp:
-        db = Rekordbox6Database(path=str(copy_db(Path(tmp))), unlock=True)
-        try:
-            paths = {c.FolderPath for c in db.get_content() if c.FolderPath}
-        finally:
-            db.close()
+    db = open_copy()
+    try:
+        paths = {c.FolderPath for c in db.get_content() if c.FolderPath}
+    finally:
+        db.close()
     return sorted(Path(p) for p in paths if p.startswith("/"))
 
 

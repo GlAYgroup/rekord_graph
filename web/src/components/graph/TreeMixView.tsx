@@ -342,7 +342,7 @@ export function TreeMixView({
                     className={`tap flex items-center gap-2 px-3.5 text-[14px] hover:bg-elevated ${o.id === tree.rootId ? "text-hot" : ""}`}
                   >
                     <span className="min-w-0 flex-1 break-words">{o.name}</span>
-                    <span className={`shrink-0 font-mono text-[11px] tabular-nums ${o.maxFrom > 1 ? "text-hot" : "text-fg-subtle"}`}>
+                    <span className={`shrink-0 font-mono text-[12px] tabular-nums ${o.maxFrom > 1 ? "text-hot" : "text-fg-subtle"}`}>
                       {o.maxFrom > 1 ? `最大${o.maxFrom}曲` : "行き止まり"}
                     </span>
                   </Link>
@@ -400,7 +400,7 @@ export function TreeMixView({
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               <h2 className="text-[17px] font-bold leading-tight break-words">{sel.name}</h2>
-              <p className="mt-0.5 font-mono text-[12px] tabular-nums text-fg-muted">
+              <p className="mt-0.5 font-mono text-[13px] tabular-nums text-fg-muted">
                 {sel.bpm ?? "–"} BPM{sel.musicalKey && ` · ${sel.musicalKey}`}
                 <span className="text-hot"> · 最大{sel.maxFrom}曲</span>
               </p>

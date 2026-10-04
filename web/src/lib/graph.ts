@@ -1,7 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { cache } from "react";
-import { DB, dbTag, NOTION_TAG, num, queryAll, relIds, REVALIDATE_SECONDS, selectName, text, type NotionPage } from "./notion";
+import { DB, dbGeneration, dbTag, NOTION_TAG, num, queryAll, relIds, REVALIDATE_SECONDS, selectName, text, type NotionPage } from "./notion";
 import { songIdOf } from "./song";
 
 /**
@@ -154,10 +154,14 @@ const reading = new Map<string, Promise<NotionPage[]>>();
  * （`fresh` の読み込みは notion.ts のまとめ役を通らない。並ぶと Notion の上限に当たる）
  */
 function readOnce(dbId: string): Promise<NotionPage[]> {
-  const running = reading.get(dbId);
+  // 鍵に「書いた回数」（`dbGeneration`）を混ぜる。混ぜないと、書く前に始まった読み込みを
+  // 書いた後の画面も受け取り、その古い中身が `unstable_cache` に新しいものとして最大5分残る。
+  // 回数はこのサーバのインスタンスの中だけ（notion.ts の `invalidateDb` を参照）
+  const key = `${dbId}#${dbGeneration(dbId)}`;
+  const running = reading.get(key);
   if (running) return running;
-  const p = queryAll(dbId, true).finally(() => reading.delete(dbId));
-  reading.set(dbId, p);
+  const p = queryAll(dbId, true).finally(() => reading.delete(key));
+  reading.set(key, p);
   return p;
 }
 

@@ -38,17 +38,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
-import subprocess
 import sys
 import re
-import tempfile
 import unicodedata
-from datetime import datetime
 from pathlib import Path
 
-RB_DIR = Path.home() / "Library/Pioneer/rekordbox"
-BACKUP_ROOT = Path.home() / "Library/Pioneer/rekordbox_backups_rekord_graph"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# 場所（REKORDBOX_DIR を含む）・コピー・バックアップ・起動中の確認は rb_db の1実装
+from rb_db import RB_DIR, backup, open_copy, open_live, refuse_if_running, rekordbox_running  # noqa: E402,F401
+
 MAP_PATH = Path(__file__).resolve().parent.parent / "data" / "tag_fixes.json"
 FIELDS = ("title", "artist", "genre")
 LABEL = {"title": "曲名", "artist": "アーティスト", "genre": "ジャンル"}
@@ -59,33 +57,13 @@ def nfc(s: str | None) -> str:
     return unicodedata.normalize("NFC", s or "")
 
 
-def rekordbox_running() -> bool:
-    return subprocess.run(["pgrep", "-x", "rekordbox"], capture_output=True).returncode == 0
-
-
-def backup() -> Path:
-    dest = BACKUP_ROOT / datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest.mkdir(parents=True)
-    for suffix in ("", "-wal", "-shm"):
-        src = RB_DIR / f"master.db{suffix}"
-        if src.exists():
-            shutil.copy2(src, dest / f"master.db{suffix}")
-    return dest
-
-
 def open_db(copy: bool):
-    from pyrekordbox import Rekordbox6Database
+    """copy=True ならコピー（読むだけ。rekordbox 起動中でも安全）、False なら実機を `path=` で開く。
 
-    if not copy:
-        return Rekordbox6Database(unlock=True), None
-    # 読むだけなので実ファイルは開かない（rekordbox 起動中でも安全）。
-    # **`path=` で開く。`db_dir=` は効かず実機が開かれる**（実測 2026-09-09: コピーのつもりが実機に書いた）
-    tmp = tempfile.TemporaryDirectory()
-    for suffix in ("", "-wal", "-shm"):
-        src = RB_DIR / f"master.db{suffix}"
-        if src.exists():
-            shutil.copy2(src, Path(tmp.name) / f"master.db{suffix}")
-    return Rekordbox6Database(path=str(Path(tmp.name) / "master.db"), unlock=True), tmp
+    2つ目の戻り値は互換のため残している（以前は TemporaryDirectory を返していた）。コピーは
+    rb_db の一時置き場に置かれ、新しい2つを残して自動で消えるので、呼び手が片付ける物は無い。
+    """
+    return (open_copy() if copy else open_live()), None
 
 
 def live_values(cont) -> dict[str, str]:
@@ -235,7 +213,6 @@ def main() -> int:
         return 1
 
     if args.audit:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
         audit(load_map(args.map) if args.map.exists() else [])
         return 0
 
@@ -245,7 +222,7 @@ def main() -> int:
         return 1
 
     print("rekordbox master.db を開いています…")
-    db, tmp = open_db(copy=readonly)
+    db, _ = open_db(copy=readonly)
     try:
         if args.find:
             find(db, args.find)
@@ -289,20 +266,19 @@ def main() -> int:
             print("\n何も反映しませんでした。")
             return 0
 
-        dest = backup()
+        dest = backup()  # 確認を待つ間に起動されていないかも、ここでもう一度見る
         print(f"\nバックアップ: {dest}")
         print(f"{len(approved)} 曲を master.db に書き込みます…")
         cache: dict = {}
         for item in approved:
             write(db, item, cache)
+        refuse_if_running()  # commit の直前にもう一度
         db.commit()
         print("完了。rekordbox を起動して表示を確認してください。")
         print("次: ./.venv/bin/python tools/sync.py --dry-run（「曲更新」として出る）")
         return 0
     finally:
         db.close()
-        if tmp:
-            tmp.cleanup()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import { RATINGS } from "@/lib/ratings";
+import { notionUnavailable } from "@/lib/notion";
 import { isTransition, updateTransitionRating } from "@/lib/transitions";
 
 /**
@@ -20,7 +21,10 @@ export async function PATCH(request: Request) {
   }
 
   // 1行だけ読んで確かめる（全件を読み直すと、続けて押したときに Notion の上限に当たる）
-  if (!(await isTransition(id))) {
+  // 読めなかった（429・回線）は「無い」ではないので 404 にしない
+  const found = await isTransition(id).catch(() => null);
+  if (found === null) return notionUnavailable();
+  if (!found) {
     return Response.json({ error: "その繋ぎは見つかりません" }, { status: 404 });
   }
 

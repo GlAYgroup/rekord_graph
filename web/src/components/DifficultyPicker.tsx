@@ -75,7 +75,7 @@ export function DifficultyPicker({
           </button>
         );
       })}
-      {failed && <span className="ml-1 text-[11px] text-warn">保存できず</span>}
+      {failed && <span className="ml-1 text-[13px] text-warn">保存できず</span>}
     </span>
   );
 }

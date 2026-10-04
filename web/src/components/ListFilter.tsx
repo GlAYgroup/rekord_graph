@@ -60,7 +60,7 @@ export function ListFilterPanel({
   const chip = (on: boolean) =>
     `btn px-3.5 text-[13px] ${on ? "btn-accent" : ""}`;
   const n = (pred: (r: Row) => boolean) => (
-    <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">{rows.filter(pred).length}</span>
+    <span className="ml-1 font-mono text-[12px] tabular-nums opacity-70">{rows.filter(pred).length}</span>
   );
   // 行き先の曲に付いている My Tag。カテゴリごとに、多い順
   const tagGroups = new Map<string, Map<string, number>>();
@@ -138,7 +138,7 @@ export function ListFilterPanel({
                 className={chip(filter.tags.includes(tag))}
               >
                 {tag.slice(tag.indexOf("/") + 1)}
-                <span className="ml-1 font-mono text-[11px] tabular-nums opacity-70">{count}</span>
+                <span className="ml-1 font-mono text-[12px] tabular-nums opacity-70">{count}</span>
               </button>
             ))}
           </div>
