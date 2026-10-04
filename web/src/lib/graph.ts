@@ -133,7 +133,7 @@ function disambiguate<T extends { name: string; fullTitle: string; alias: string
  * 読み取りキャッシュの形の版。下の `parse*` が返す形を変えたら上げる
  * （キャッシュはデプロイをまたいで残るので、上げないと新しいコードが古い形を受け取る）
  */
-const SHAPE = "v1";
+const SHAPE = "v2";
 
 /**
  * DB 1つを「読んで整えた結果」ごと1件でキャッシュする。
@@ -236,6 +236,9 @@ function parseTransitions(transitionPages: NotionPage[]): Transition[] {
       // 「小節数（後）」列がまだ無いワークスペースでも動く（無ければ「後は未入力」）。
       // 列は最初に「後」を書いたときにアプリが生やす（`lib/transitions.ts`）
       barsAfter: num(p.properties["小節数（後）"]),
+      // ループ合わせの小節数。列がまだ無いワークスペースでも動く（最初の保存でアプリが生やす）
+      loopBefore: num(p.properties["ループ小節（繋ぎ前）"]),
+      loopAfter: num(p.properties["ループ小節（繋ぎ後）"]),
       rating: selectName(p.properties["評価"]),
       // 「難易度」列がまだ無いワークスペースでも動く（無ければ未入力）
       difficulty: selectName(p.properties["難易度"]),

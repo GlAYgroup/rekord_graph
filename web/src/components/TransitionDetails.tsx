@@ -1,4 +1,4 @@
-import { barsLabel, chainLabel } from "@/lib/format";
+import { barsLabel, chainLabel, techniqueLabel } from "@/lib/format";
 import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import type { Transition } from "@/lib/types";
 
@@ -27,7 +27,7 @@ export function TransitionDetails({
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {t.technique && (
             <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
-              {t.technique}
+              {techniqueLabel(t)}
             </span>
           )}
           {bars && <span className="text-[12px] tabular-nums text-fg-subtle">{bars}</span>}

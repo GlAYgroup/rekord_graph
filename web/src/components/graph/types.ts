@@ -56,6 +56,9 @@ export type PanelTransition = {
   bars: number | null;
   /** TO キューの何小節「後」から */
   barsAfter: number | null;
+  /** ループ合わせの繋ぎ前・繋ぎ後のループ小節数（表示は techniqueLabel） */
+  loopBefore: number | null;
+  loopAfter: number | null;
 };
 
 export type PanelData = Record<string, { out: PanelTransition[]; in: PanelTransition[] }>;

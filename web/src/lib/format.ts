@@ -81,6 +81,27 @@ export function barsLabel(t: BarsLike, toCueLabel: string): string | null {
   return null;
 }
 
+/** ループの長さを選ぶ種類。これを選んだときだけ「繋ぎ前／繋ぎ後」のループ小節数を入れられる */
+export const LOOP_TECHNIQUE = "ループ合わせ";
+
+/** 種類の入れ物。ループ小節数は「繋ぎ前」「繋ぎ後」で別々に入る（両方入ることもある） */
+export type TechniqueLike = { technique: string | null; loopBefore: number | null; loopAfter: number | null };
+
+/**
+ * 種類の短い表し方 = `ループ合わせ（繋ぎ前 8小節・繋ぎ後 4小節）`。**種類を文字で出す所は全部これを通す。**
+ * ループ合わせのときだけ、入っている側の小節数を添える（片方だけ・両方・どちらも無し、のどれもある）。
+ * 他の種類にループ小節数は入らない（入力画面が欄を出さず、API も弾く）。
+ */
+export function techniqueLabel(t: TechniqueLike): string | null {
+  if (!t.technique) return null;
+  if (t.technique !== LOOP_TECHNIQUE) return t.technique;
+  const parts: string[] = [];
+  // 数字と「小節」の間は WORD JOINER（barsLabel と同じ。狭い画面で割れないように）
+  if (t.loopBefore != null) parts.push(`繋ぎ前 ${t.loopBefore}\u2060小節`);
+  if (t.loopAfter != null) parts.push(`繋ぎ後 ${t.loopAfter}\u2060小節`);
+  return parts.length ? `${t.technique}（${parts.join("・")}）` : t.technique;
+}
+
 /** チェーン名の読み = `chain6` → `チェーン 6`。チェーンの画面の見出しと入力画面の一覧が同じ形で読めるように */
 export const chainLabel = (chain: string): string => chain.replace(/^chain/i, "チェーン ");
 

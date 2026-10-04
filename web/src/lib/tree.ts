@@ -1,4 +1,4 @@
-import { barsLabel, cueLabel, cueOf, type BarsLike } from "./format";
+import { barsLabel, cueLabel, cueOf, techniqueLabel, type BarsLike } from "./format";
 import type { Graph } from "./graph";
 import { longestRouteFrom } from "./route";
 
@@ -60,6 +60,7 @@ export type TreeVia = {
   comment: string;
   bars: number | null;
   barsAfter: number | null;
+  /** 種類の読み（`techniqueLabel`。ループ合わせなら繋ぎ前・後の小節数つき） */
   technique: string | null;
   /** 描く行（折り返し済み）。画面はこれをそのまま出す */
   lines: ViaLine[];
@@ -214,12 +215,14 @@ export function buildTree(g: Graph, rootId: string): TreeData | null {
       if (edge) {
         const fromCue = cueLabel(cueOf(g.cueById, edge.fromCueId));
         const toCue = cueLabel(cueOf(g.cueById, edge.toCueId));
-        const lines = viaLinesOf(fromCue, toCue, edge.technique, edge, edge.comment);
+        // 種類はループの小節数まで含めた読み（techniqueLabel）で測る。測る文字と描く文字を揃える
+        const technique = techniqueLabel(edge);
+        const lines = viaLinesOf(fromCue, toCue, technique, edge, edge.comment);
         const w = Math.ceil(Math.max(...lines.map((l) => unitsOf(l.text))) * LABEL_FONT_PX * WIDTH_SAFETY) + LABEL_PAD_X * 2;
         const h = lines.length * LABEL_LINE_H + LABEL_PAD_Y * 2;
         viaOf.set(n.uid, {
           fromCue, toCue, comment: edge.comment,
-          bars: edge.bars, barsAfter: edge.barsAfter, technique: edge.technique, lines, w, h,
+          bars: edge.bars, barsAfter: edge.barsAfter, technique, lines, w, h,
         });
         const d = n.depth - 1;
         labelWAt.set(d, Math.max(labelWAt.get(d) ?? 0, w));

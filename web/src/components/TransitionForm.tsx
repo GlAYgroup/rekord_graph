@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { CuePad, LoopTag } from "@/components/CuePad";
 import { usePerformance } from "@/components/PerformanceMode";
 import type { Cue } from "@/lib/types";
-import { barsLabel, chainLabel, cueLabel, formatPosition } from "@/lib/format";
+import { barsLabel, chainLabel, cueLabel, formatPosition, LOOP_TECHNIQUE, techniqueLabel } from "@/lib/format";
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
 import { RATINGS } from "@/lib/ratings";
 import { DifficultyPicker } from "./DifficultyPicker";
@@ -58,6 +58,8 @@ export type ListedTransition = {
   rating: string | null;
   bars: number | null;
   barsAfter: number | null;
+  loopBefore: number | null;
+  loopAfter: number | null;
   practice: boolean;
   difficulty: string | null;
   chain: string;
@@ -110,6 +112,9 @@ export function TransitionForm({
   // （片方に数が入っている間、もう片方は塞ぐ。API 側でも両方入りを弾いている）
   const [bars, setBars] = useState(editRow?.bars == null ? "" : String(editRow.bars));
   const [barsAfter, setBarsAfter] = useState(editRow?.barsAfter == null ? "" : String(editRow.barsAfter));
+  // ループ合わせのループ小節数。繋ぎ前・繋ぎ後は別々で、両方入れてもよい（小節数の前／後とは違って排他ではない）
+  const [loopBefore, setLoopBefore] = useState(editRow?.loopBefore == null ? "" : String(editRow.loopBefore));
+  const [loopAfter, setLoopAfter] = useState(editRow?.loopAfter == null ? "" : String(editRow.loopAfter));
   const [practice, setPractice] = useState(editRow?.practice ?? false);
   const [chain, setChain] = useState(editRow?.chain ?? "");
   const [comment, setComment] = useState(editRow?.comment ?? "");
@@ -155,7 +160,7 @@ export function TransitionForm({
   /** フォームの中身を1本にしたもの。保存した時点と比べて「触ったか」を見る */
   const formKey = JSON.stringify([
     fromTrack?.id ?? null, fromCue?.id ?? null, toTrack?.id ?? null, toCue?.id ?? null,
-    technique, rating, difficulty, bars, barsAfter, practice, chain, comment,
+    technique, rating, difficulty, bars, barsAfter, loopBefore, loopAfter, practice, chain, comment,
   ]);
   const saved = savedKey === formKey;
   /** 小節数の読み下し（`次の曲 C「歌入り」の16小節前`）。組み立ては format.ts の barsLabel だけ */
@@ -184,6 +189,7 @@ export function TransitionForm({
   const clearForm = () => {
     setFromTrack(null); setFromCue(null); setToTrack(null); setToCue(null);
     setTechnique(null); setRating(null); setDifficulty(null); setBars(""); setBarsAfter(""); setPractice(false);
+    setLoopBefore(""); setLoopAfter("");
     setChain(""); setComment("");
     setFormSeq((n) => n + 1);
   };
@@ -222,7 +228,7 @@ export function TransitionForm({
       const payload = {
         fromTrackId: fromTrack.id, fromCueId: fromCue?.id ?? "",
         toTrackId: toTrack.id, toCueId: toCue?.id ?? "",
-        technique, rating, difficulty, bars, barsAfter, practice, chain, comment,
+        technique, rating, difficulty, bars, barsAfter, loopBefore, loopAfter, practice, chain, comment,
       };
       const res = await fetch("/api/transitions", {
         method: editingId ? "PATCH" : "POST",
@@ -245,6 +251,8 @@ export function TransitionForm({
         technique, rating, difficulty,
         bars: bars === "" ? null : Number(bars),
         barsAfter: barsAfter === "" ? null : Number(barsAfter),
+        loopBefore: loopBefore === "" ? null : Number(loopBefore),
+        loopAfter: loopAfter === "" ? null : Number(loopAfter),
         practice, chain,
         // 保存は同期ステータスを OK に書く（lib/transitions.ts の properties）= 印は外れる
         needsReview: false,
@@ -284,6 +292,8 @@ export function TransitionForm({
     setTechnique(row.technique); setRating(row.rating); setDifficulty(row.difficulty);
     setBars(row.bars == null ? "" : String(row.bars));
     setBarsAfter(row.barsAfter == null ? "" : String(row.barsAfter));
+    setLoopBefore(row.loopBefore == null ? "" : String(row.loopBefore));
+    setLoopAfter(row.loopAfter == null ? "" : String(row.loopAfter));
     setPractice(row.practice);
     setChain(row.chain); setComment(row.comment);
     setEditingId(row.id);
@@ -427,13 +437,37 @@ export function TransitionForm({
               <button
                 key={t}
                 type="button"
-                onClick={() => setTechnique((cur) => (cur === t ? null : t))}
+                onClick={() => {
+                  const next = technique === t ? null : t;
+                  setTechnique(next);
+                  // ループ小節数はループ合わせだけのもの。外したら一緒に空にする（API も他の種類では弾く）
+                  if (next !== LOOP_TECHNIQUE) { setLoopBefore(""); setLoopAfter(""); }
+                }}
                 className={chipClass(technique === t)}
               >
                 {t}
               </button>
             ))}
           </div>
+          {/*
+            ループ合わせのときだけ、どこでループするか（繋ぎ前／繋ぎ後）と何小節かを入れる。
+            両方ループすることもあるので2つは独立（片方を入れてももう片方は塞がない）。
+            空 = その側ではループしない
+          */}
+          {technique === LOOP_TECHNIQUE && (
+            <div className="mt-3 space-y-3 rounded-card border border-border bg-surface-2 p-3">
+              <LoopBarsField label="繋ぎ前" value={loopBefore} onChange={setLoopBefore} />
+              <LoopBarsField label="繋ぎ後" value={loopAfter} onChange={setLoopAfter} />
+              <span className="block text-[12px] text-fg-subtle">
+                {techniqueLabel({
+                  technique,
+                  loopBefore: loopBefore === "" ? null : Number(loopBefore),
+                  loopAfter: loopAfter === "" ? null : Number(loopAfter),
+                })}
+                {loopBefore === "" && loopAfter === "" && " — ループする側の小節数を入れてください（両方でも可）"}
+              </span>
+            </div>
+          )}
         </div>
 
         <div>
@@ -772,6 +806,44 @@ const Bpm = ({ value }: { value: number | null }) => (
  * 一括編集中は、評価・難易度・要練習を押して変えるボタンが同じ行に出るので、その3つの札は出さない
  * （同じことを1行で2回言わない）。種類・小節数・チェーン・コメントは一括編集に無いので常に出す。
  */
+/** よく使うループの長さ。押すとその小節数が入り、もう一度押すと空に戻る */
+const LOOP_PRESETS = [1, 2, 4, 8, 16];
+
+/** ループ合わせの片側（繋ぎ前 / 繋ぎ後）の小節数。プリセットを1タップか、半端な長さは数で入れる */
+function LoopBarsField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <span className="text-[12px] text-fg-subtle">
+        <b className="text-fg-muted">{label}</b>のループ · 何小節
+      </span>
+      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+        {LOOP_PRESETS.map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => onChange(value === String(n) ? "" : String(n))}
+            aria-pressed={value === String(n)}
+            className={chipClass(value === String(n))}
+          >
+            {n}
+          </button>
+        ))}
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="any"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="なし"
+          aria-label={`${label}のループの小節数`}
+          className="h-10 w-20 rounded-card border border-border bg-surface px-2 font-mono text-[16px] outline-none placeholder:text-fg-subtle focus:border-accent"
+        />
+      </div>
+    </div>
+  );
+}
+
 function RowDetails({ row, bulk }: { row: ListedTransition; bulk: boolean }) {
   // 出す・出さないは barsLabel の結果で決める（`bars != null` で見ると「後」だけの行が消える）
   const bars = barsLabel(row, row.toCue);
@@ -786,7 +858,7 @@ function RowDetails({ row, bulk }: { row: ListedTransition; bulk: boolean }) {
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
           {row.technique && (
             <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
-              {row.technique}
+              {techniqueLabel(row)}
             </span>
           )}
           {bars && <span className="text-[12px] tabular-nums text-fg-subtle">{bars}</span>}

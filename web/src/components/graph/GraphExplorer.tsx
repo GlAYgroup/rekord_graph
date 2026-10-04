@@ -7,7 +7,7 @@ import {
 } from "@/lib/layout";
 import { usePerformance } from "@/components/PerformanceMode";
 import { FilterPanel } from "@/components/FilterPanel";
-import { barsLabel, bpmDelta } from "@/lib/format";
+import { barsLabel, bpmDelta, techniqueLabel } from "@/lib/format";
 import { filterChoices, filterSummary, isFiltering, passesFilter } from "@/lib/playFilter";
 import { maxOnwardFrom } from "@/lib/route";
 import { useStoredFilter } from "@/lib/useStoredFilter";
@@ -1700,7 +1700,7 @@ export function GraphExplorer({
                           </span>
                           {(t.technique || barsLabel(t, t.toCue)) && (
                             <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px]">
-                              {t.technique && <span className="text-fg-muted">{t.technique}</span>}
+                              {t.technique && <span className="text-fg-muted">{techniqueLabel(t)}</span>}
                               {barsLabel(t, t.toCue) && (
                                 <span className="tabular-nums text-fg-subtle">{barsLabel(t, t.toCue)}</span>
                               )}

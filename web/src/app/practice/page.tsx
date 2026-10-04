@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PracticeToggle } from "@/components/PracticeToggle";
 import { RatingPicker } from "@/components/RatingPicker";
-import { barsLabel, cueLabel, cueOf } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf, techniqueLabel } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 
 export const metadata = { title: "練習 | rekord_graph" };
@@ -57,7 +57,7 @@ export default async function PracticePage() {
                   <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-fg-muted">
                     {t.technique && (
                       <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
-                        {t.technique}
+                        {techniqueLabel(t)}
                       </span>
                     )}
                     {barsLabel(t, cueLabel(toCue)) && (

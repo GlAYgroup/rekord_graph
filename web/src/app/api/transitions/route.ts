@@ -1,4 +1,5 @@
 import { asDifficulty } from "@/lib/difficulty";
+import { LOOP_TECHNIQUE } from "@/lib/format";
 import { getGraph } from "@/lib/graph";
 import { RATINGS } from "@/lib/ratings";
 import { createTransition, deleteTransition, updateTransition } from "@/lib/transitions";
@@ -59,6 +60,17 @@ async function validated(body: Record<string, unknown> | null) {
     return { error: "小節数は To のキューを選んだときだけ入れられます", status: 400 as const };
   }
 
+  // ループ小節数は「ループ合わせ」のときだけ。前と後は**両方入ってよい**（小節数の前／後とは違って排他ではない）
+  const technique = str(body?.technique) || null;
+  const loopBefore = numOrNull(body?.loopBefore);
+  const loopAfter = numOrNull(body?.loopAfter);
+  if ((loopBefore != null || loopAfter != null) && technique !== LOOP_TECHNIQUE) {
+    return { error: `ループの小節数は種類が「${LOOP_TECHNIQUE}」のときだけ入れられます`, status: 400 as const };
+  }
+  if ((loopBefore != null && loopBefore <= 0) || (loopAfter != null && loopAfter <= 0)) {
+    return { error: "ループの小節数は 0 より大きい数にしてください", status: 400 as const };
+  }
+
   return {
     graph: g,
     payload: {
@@ -66,12 +78,14 @@ async function validated(body: Record<string, unknown> | null) {
       title: `${from.name} → ${to.name}`,
       comment: str(body?.comment),
       chain: str(body?.chain),
-      technique: str(body?.technique) || null,
+      technique,
       rating,
       // 知らない値は捨てる（打ち間違いで Notion の選択肢を増やさない）
       difficulty: asDifficulty(str(body?.difficulty)),
       bars,
       barsAfter,
+      loopBefore,
+      loopAfter,
       practice: body?.practice === true,
       // 送られてこなければ書かない（入力画面は順番を送らない。null で上書きすると移行分の順番が消える）
       order: body && typeof body === "object" && "order" in body ? numOrNull(body.order) : undefined,

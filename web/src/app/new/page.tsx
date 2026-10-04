@@ -71,6 +71,8 @@ export default async function NewTransitionPage({
       rating: t.rating,
       bars: t.bars,
       barsAfter: t.barsAfter,
+      loopBefore: t.loopBefore,
+      loopAfter: t.loopAfter,
       practice: t.practice,
       difficulty: t.difficulty,
       chain: t.chain,

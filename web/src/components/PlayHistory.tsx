@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { SaveAsPlaylist } from "./SaveAsPlaylist";
-import { barsLabel, cueLabel, cueOf } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf, techniqueLabel } from "@/lib/format";
 import { deleteSet, readHistory, type PlaySet } from "@/lib/playlog";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -143,7 +143,7 @@ export function PlayHistory({
                           </span>
                           {(via.technique || barsLabel(via, toCueLabel)) && (
                             <span className="ml-2 text-[12px] text-fg-muted">
-                              {via.technique}
+                              {techniqueLabel(via)}
                               {via.technique && barsLabel(via, toCueLabel) && " · "}
                               {barsLabel(via, toCueLabel)}
                             </span>

@@ -60,6 +60,12 @@ export type Transition = {
   bars: number | null;
   /** 次の曲（To）のキューの何小節**後**から繋ぎ始めるか。`bars` とは排他（両方は入らない） */
   barsAfter: number | null;
+  /**
+   * ループ合わせのループの長さ（小節）。**繋ぎ前**と**繋ぎ後**で別々に持ち、両方入ることもある。
+   * 種類が「ループ合わせ」のときだけ入る。表示は `lib/format.ts` の `techniqueLabel`
+   */
+  loopBefore: number | null;
+  loopAfter: number | null;
   rating: string | null;
   /** 難易度（`lib/difficulty.ts` の値）。未入力は null = /play の難易度条件では外さない */
   difficulty: string | null;

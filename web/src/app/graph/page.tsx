@@ -88,6 +88,8 @@ export default async function GraphPage({
       technique: t.technique,
       bars: t.bars,
       barsAfter: t.barsAfter,
+      loopBefore: t.loopBefore,
+      loopAfter: t.loopAfter,
     };
     const to = g.trackById.get(t.toTrackId);
     const from = g.trackById.get(t.fromTrackId);

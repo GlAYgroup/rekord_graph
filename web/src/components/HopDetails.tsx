@@ -1,7 +1,7 @@
 import { CueLine } from "./CuePad";
 import { TrackTimeline } from "./TrackTimeline";
 import { DIFFICULTY_LABEL, type Difficulty } from "@/lib/difficulty";
-import { barsLabel, cueLabel, cueOf } from "@/lib/format";
+import { barsLabel, cueLabel, cueOf, techniqueLabel } from "@/lib/format";
 import { KEY_MATCH_LABEL, KEY_MATCH_TITLE, keyMatch } from "@/lib/key";
 import type { Cue, Track, Transition } from "@/lib/types";
 
@@ -63,7 +63,7 @@ export function HopDetails({
             {showRating && t.rating && <span className="text-[12px] text-warn">{t.rating}</span>}
             {t.technique && (
               <span className="rounded border border-border-bright bg-elevated px-1.5 py-0.5 text-[12px] text-fg">
-                {t.technique}
+                {techniqueLabel(t)}
               </span>
             )}
             {bars && <span className="text-[12px] tabular-nums text-fg-subtle">{bars}</span>}

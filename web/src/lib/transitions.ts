@@ -21,6 +21,9 @@ export type NewTransition = {
   technique?: string | null;
   bars?: number | null;
   barsAfter?: number | null;
+  /** ループ合わせの繋ぎ前・繋ぎ後のループ小節数（両方入ることもある） */
+  loopBefore?: number | null;
+  loopAfter?: number | null;
   practice?: boolean;
   rating?: string | null;
   difficulty?: string | null;
@@ -53,6 +56,8 @@ function properties(t: NewTransition) {
     難易度: selectProp(t.difficulty),
     小節数: { number: t.bars ?? null },
     "小節数（後）": { number: t.barsAfter ?? null },
+    "ループ小節（繋ぎ前）": { number: t.loopBefore ?? null },
+    "ループ小節（繋ぎ後）": { number: t.loopAfter ?? null },
     要練習: { checkbox: t.practice ?? false },
     ...(t.order === undefined ? {} : { 順番: { number: t.order } }),
     // キューは実データから選ばせているので、記号ズレの心配が無い = OK
@@ -77,6 +82,8 @@ async function ensureColumns(): Promise<void> {
     );
     const want: Record<string, unknown> = {
       "小節数（後）": { number: {} },
+      "ループ小節（繋ぎ前）": { number: {} },
+      "ループ小節（繋ぎ後）": { number: {} },
       要練習: { checkbox: {} },
       // 選択肢の並び（易しい順）を最初から揃えておく。値から生やすと入れた順になる
       難易度: { select: { options: DIFFICULTIES.map((name) => ({ name })) } },
