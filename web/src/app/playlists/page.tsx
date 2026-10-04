@@ -15,7 +15,7 @@ export default async function PlaylistsPage() {
   if (!hasDb("playlists")) {
     return (
       <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
-        <h1 className="text-[22px] font-bold tracking-tight">プレイリスト</h1>
+        <h1 className="pr-corner text-[22px] font-bold tracking-tight">プレイリスト</h1>
         <p className="mt-3 rounded-card border border-warn/40 bg-warn/10 p-4 text-[14px] text-warn">
           🎶Playlists の DB がまだ設定されていません。環境変数 NOTION_DB_PLAYLISTS
           （ローカルなら ~/.config/rekord_graph/config.json の notion.databases.playlists）を置いてください。

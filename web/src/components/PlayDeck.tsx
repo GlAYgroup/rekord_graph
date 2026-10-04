@@ -472,7 +472,7 @@ export function PlayDeck({
     <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav sm:px-4 lg:max-w-6xl">
       {/* ── 今かけている曲。ここが常に基準なので上に貼り付けておく ── */}
       <header className={`sticky top-0 z-20 -mx-3 border-b border-border bg-bg/90 px-3 backdrop-blur-md ${compact ? "py-1.5" : "pb-3 pt-3"} sm:-mx-4 sm:px-4`}>
-        <div className={`flex gap-2 ${compact ? "items-center" : "items-start"}`}>
+        <div className={`pr-corner flex gap-2 ${compact ? "items-center" : "items-start"}`}>
           <div className="min-w-0 flex-1">
             {!compact && <span className="label">{performing ? "本番 · 今かけている曲" : "今かけている曲"}</span>}
             {/*
@@ -885,7 +885,7 @@ function StartPicker({
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
-      <div className="flex items-start gap-2">
+      <div className="pr-corner flex items-start gap-2">
         <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">
           {mode === "jump" ? "次にかける曲" : "最初にかける曲"}
         </h1>

@@ -180,6 +180,15 @@ body {
   &:hover { color: var(--warn); border-color: var(--warn); }
 }
 
+/*
+ * スマホで右上の本番スイッチ（`PerformanceToggle` の corner）の下に潜らないよう、
+ * 各画面の**1行目**の右を空ける。PC はスイッチが左レールにあるので空けない
+ */
+@utility pr-corner {
+  padding-right: 5.25rem;
+  @media (width >= 48rem) { padding-right: 0; }
+}
+
 /* 下タブに隠れない下余白。ページの一番外側の要素に付ける */
 @utility pb-nav {
   padding-bottom: calc(var(--nav-h) + 1.5rem);

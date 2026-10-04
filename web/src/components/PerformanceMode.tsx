@@ -75,10 +75,14 @@ export function PerformanceBar() {
 }
 
 /**
- * 切り替えボタン。ナビの中に置く（グラフを全画面で見ている最中でも押せる位置）。
+ * 切り替えボタン。PC は左レールの中、スマホは**画面右上に常設のスイッチ**（`corner`）。
+ * どちらもグラフを全画面で見ている最中でも押せる位置。
+ * スマホで下タブに並べていた頃は、画面を移るタブと見分けが付かなかった — これは移動ではなく
+ * オン/オフなので、スイッチの形にして上端の琥珀の線（`PerformanceBar`）と同じ場所に置く。
+ * 右上の幅ぶんは各画面の1行目が `pr-corner` で空けている（ボタンが下に潜らないように）。
  * 本番中は琥珀で光らせる = 押せば戻れることが分かる。
  */
-export function PerformanceToggle({ variant }: { variant: "rail" | "tab" }) {
+export function PerformanceToggle({ variant }: { variant: "rail" | "corner" }) {
   const { on, toggle } = usePerformance();
   const icon = (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-5">
@@ -105,18 +109,33 @@ export function PerformanceToggle({ variant }: { variant: "rail" | "tab" }) {
       </button>
     );
   }
+  // 押せる範囲は 44px 四方以上（見た目のピルより広く取る。暗所で指がずれても入るように）
   return (
     <button
       type="button"
       onClick={toggle}
-      aria-pressed={on}
+      role="switch"
+      aria-checked={on}
+      aria-label="本番（パフォーマンスモード）"
       title={title}
-      className={`tap flex w-full flex-col items-center justify-center gap-0.5 py-2 ${
-        on ? "text-hot" : "text-fg-subtle"
-      }`}
+      className="fixed right-1.5 top-[env(safe-area-inset-top,0px)] z-40 flex h-11 items-center px-1.5 md:hidden"
     >
-      {icon}
-      {label}
+      <span
+        className={`flex h-8 items-center gap-1.5 rounded-full border pl-2.5 pr-1 text-[11.5px] font-semibold tracking-wide backdrop-blur-md transition-colors ${
+          on ? "border-hot/70 bg-hot/15 text-hot" : "border-border-bright bg-bg/85 text-fg-subtle"
+        }`}
+        style={on ? { boxShadow: "var(--glow-hot)" } : undefined}
+      >
+        本番
+        {/* スイッチのつまみ。右 = オン */}
+        <span className={`relative h-5 w-8 rounded-full transition-colors ${on ? "bg-hot" : "bg-elevated"}`}>
+          <span
+            className={`absolute top-0.5 size-4 rounded-full transition-all ${
+              on ? "left-[14px] bg-hot-fg" : "left-0.5 bg-fg-subtle"
+            }`}
+          />
+        </span>
+      </span>
     </button>
   );
 }

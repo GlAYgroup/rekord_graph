@@ -42,7 +42,7 @@ export function TrackSearch({ tracks }: { tracks: SearchTrack[] }) {
   return (
     <>
       <div className="sticky top-0 z-20 -mx-4 border-b border-border bg-bg/85 px-4 pb-3 pt-4 backdrop-blur-md lg:-mx-8 lg:px-8">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5">
+        <div className="pr-corner flex flex-wrap items-center gap-x-4 gap-y-2.5">
           <h1 className="text-[24px] font-bold leading-none tracking-tight">rekord_graph</h1>
           <input
             value={q}

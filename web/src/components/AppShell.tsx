@@ -58,7 +58,7 @@ const TABS = [
     ),
   },
   {
-    // プレイ中に開く画面。本番の切り替えの隣 = 親指がいちばん届く側に置く
+    // プレイ中に開く画面。親指がいちばん届く右端に置く
     href: "/play",
     label: "プレイ",
     match: (p: string) => p.startsWith("/play"),
@@ -129,6 +129,9 @@ function Shell({ children }: { children: ReactNode }) {
 
       {children}
 
+      {/* スマホ: 本番のスイッチは右上に常設（下タブは画面の移動だけにする） */}
+      <PerformanceToggle variant="corner" />
+
       {/*
         スマホ: 下タブ。
         高さは `--nav-h` が正本（グラフのキャンバスと各ページの下余白が同じ値を見ている）。
@@ -154,9 +157,6 @@ function Shell({ children }: { children: ReactNode }) {
               </li>
             );
           })}
-          <li className="flex-1">
-            <PerformanceToggle variant="tab" />
-          </li>
         </ul>
       </nav>
     </div>

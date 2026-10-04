@@ -296,7 +296,7 @@ export function TreeMixView({
       </svg>
 
       {/* ── 左上: モード切替 + 起点ピッカー ── */}
-      <div className="absolute left-3 top-3 flex w-[min(280px,calc(100%-24px))] flex-col gap-2">
+      <div className="absolute left-3 top-3 flex w-[min(280px,calc(100%-104px))] md:w-[min(280px,calc(100%-24px))] flex-col gap-2">
         <div className="flex gap-1.5">
           <Link
             href={`/graph?from=${tree.rootId}`}

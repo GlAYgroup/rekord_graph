@@ -38,7 +38,7 @@ export function PlaylistIndex({ playlists, tracks }: { playlists: Playlist[]; tr
 
   return (
     <main className="relative z-1 mx-auto max-w-2xl px-4 pb-nav pt-4">
-      <div className="flex items-start gap-2">
+      <div className="pr-corner flex items-start gap-2">
         <h1 className="min-w-0 flex-1 text-[22px] font-bold tracking-tight">プレイリスト</h1>
         <Link
           href="/play"

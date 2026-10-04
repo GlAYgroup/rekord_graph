@@ -58,7 +58,7 @@ export default async function TrackPage({
   return (
     <main className="relative z-1 mx-auto max-w-6xl px-4 pb-nav lg:px-8">
       <header className="sticky top-0 z-20 -mx-4 border-b border-border bg-bg/85 px-4 pb-3 pt-3 backdrop-blur-md lg:-mx-8 lg:px-8">
-        <nav className="mb-1.5 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[12px] text-fg-subtle">
+        <nav className="pr-corner mb-1.5 flex items-center gap-1 overflow-x-auto whitespace-nowrap text-[12px] text-fg-subtle">
           <Link href="/" className="shrink-0 hover:text-fg-muted">一覧</Link>
           {crumbs.map((t, i) => (
             <span key={`${t.id}-${i}`} className="shrink-0">

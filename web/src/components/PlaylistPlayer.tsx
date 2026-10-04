@@ -67,7 +67,7 @@ export function PlaylistPlayer({
     <main className="relative z-1 mx-auto max-w-4xl px-3 pb-nav sm:px-4">
       {/* ── 今かけている曲 ── */}
       <header className="sticky top-0 z-20 -mx-3 border-b border-border bg-bg/90 px-3 pb-3 pt-3 backdrop-blur-md sm:-mx-4 sm:px-4">
-        <div className="flex items-start gap-2">
+        <div className="pr-corner flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <span className="label">
               {playlist.name} · {pos + 1}/{items.length}曲目{performing ? " · 本番" : ""}

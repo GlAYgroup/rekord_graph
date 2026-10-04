@@ -1222,7 +1222,7 @@ export function GraphExplorer({
         全部出しっぱなしだと、スマホでは画面の上半分が、PC でも左上がボタン10個で埋まって
         地図が見えない。引き出しはスマホと PC で同じ1実装（PC だけ常に出す分岐は持たない）
       */}
-      <div className="absolute left-3 top-3 flex w-[min(280px,calc(100%-24px))] flex-col gap-2">
+      <div className="absolute left-3 top-3 flex w-[min(280px,calc(100%-104px))] md:w-[min(280px,calc(100%-24px))] flex-col gap-2">
         <div className="flex gap-1.5">
           <span className="tap flex shrink-0 items-center whitespace-nowrap rounded-full border border-accent/60 bg-accent/12 px-3.5 text-[12px] text-accent backdrop-blur">
             ネットワーク

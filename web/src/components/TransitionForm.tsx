@@ -328,7 +328,7 @@ export function TransitionForm({
   if (performing) {
     return (
       <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
-        <h1 className="text-[22px] font-bold leading-tight">パフォーマンスモード中です</h1>
+        <h1 className="pr-corner text-[22px] font-bold leading-tight">パフォーマンスモード中です</h1>
         <p className="mt-2 text-[13.5px] text-fg-muted">
           本番中に記録が書き換わらないよう、入力・編集は畳んでいます。
         </p>
@@ -367,7 +367,7 @@ export function TransitionForm({
 
   return (
     <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
-      <div className="flex items-start gap-2">
+      <div className="pr-corner flex items-start gap-2">
         <h1 className="min-w-0 flex-1 text-[22px] font-bold leading-tight">
           {editingId ? "繋ぎを編集" : "繋ぎを追加"}
         </h1>

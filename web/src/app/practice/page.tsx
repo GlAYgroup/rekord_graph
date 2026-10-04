@@ -32,7 +32,7 @@ export default async function PracticePage() {
   return (
     // relative z-1: 全面に敷いた .grain（fixed・z-index 0）より上に文字を置く（他の画面と同じ）
     <main className="relative z-1 mx-auto max-w-[820px] px-4 pb-nav pt-5 md:pb-16">
-      <h1 className="text-[22px] font-bold leading-tight">要練習の繋ぎ · {rows.length}</h1>
+      <h1 className="pr-corner text-[22px] font-bold leading-tight">要練習の繋ぎ · {rows.length}</h1>
       <p className="mt-1 text-[13px] text-fg-muted" title="曲ページ・グラフ・/play の下見でも付け外しできます">
         仕上がった繋ぎは「要練習」を外して、ここを空にしていきます。
       </p>
