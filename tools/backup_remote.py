@@ -77,7 +77,7 @@ class RemoteBackup:
         transfers = "32" if args[0] == "sync" and "--copy-links" not in args else "8"
         result = subprocess.run(
             [self.binary, *map(str, args), "--transfers", transfers, "--checkers", "8",
-             "--fast-list",
+             "--fast-list", "--no-update-dir-modtime",
              "--stats", "30s", "--stats-one-line", "--stats-log-level", "NOTICE",
              "--log-level", "NOTICE"],
             check=True, text=True, stdout=subprocess.PIPE if capture else None,
