@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""rekordbox のライブラリと曲ファイルを iCloud Drive に同期する（Mac → iCloud の片方向）。
+"""rekordboxのライブラリと曲ファイルをGoogle Driveまたはローカル保存先に同期する
+
+Google Driveへの直接送信（rcloneの認可は本人操作）:
+  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup
+  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --verify
+  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --install
+
+既存のローカル/iCloud経路:
 
   ./.venv/bin/python tools/backup.py              # 1回同期する
   ./.venv/bin/python tools/backup.py --dry-run    # 何をするかだけ見る
@@ -17,11 +24,11 @@
   files/Users/.../Music/...      曲ファイル。元の絶対パスの形のまま
   previous/files/...             ひとつ前の同期で上書き・削除された曲ファイル
 
-- **最新版＋ひとつ前だけを持つ**。iCloud は同期であって版を持たないので、
+- **最新版＋ひとつ前を持つ**。保存先の版管理に依存せず、
   壊れた master.db で上書きしても前回分に戻れるよう1世代だけ残す
 - **曲ファイルは「曲が入っているフォルダ」を丸ごと鏡にする**（~/Music/DJ_songs など）。
   ライブラリに取り込んでいない音源やメモも戻せるように。Mac で消したファイルは
-  iCloud からも消える（前回分として previous/ に1回ぶん残る）。
+  保存先からも消える（前回分として previous/ に1回ぶん残る）
   Apple Music の管理フォルダ（~/Music/Music）など、それ以外の場所にある曲はその曲だけ持つ
 - **元の絶対パスの形で置く**。rekordbox は曲をフルパスで探すので、同じ場所へ戻せば
   「曲が見つからない」にならない（ユーザー名が変わったら rekordbox の「再配置」で直す）
@@ -29,10 +36,21 @@
 - rekordbox アカウントのトークン類はコピーしない（ログインし直せば戻る）
 - Spotify などストリーミングの曲はファイルが無いので持てない（キューは master.db に残る）
 
+Google Drive経路はライブラリだけ一時コピーし、そのDBから曲参照を取得する
+転送・照合が成功してから世代を更新し、中断時の退避は.incomplete/<実行ID>/に残す
+library/latestが無い場合はlibrary/previousが最後の完成済みライブラリ
+次回実行時にpreviousからlatestを復旧して世代を更新する
+
 戻し方（新しい Mac）: rekordbox を入れて一度起動 → 終了し、
+Google Driveの場合は新しいMacでrcloneをインストールし、同じアカウントを認可して
+`rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する
+（復元先には曲を含む全容量の空きが必要。iCloudの場合は既存バックアップを使う）
 `library/latest/rekordbox/` を ~/Library/Pioneer/rekordbox に、
 `library/latest/settings/` を ~/Library/Application Support/Pioneer/rekordbox6 に、
 `files/` の中身を `/` からの同じパスにコピーしてから rekordbox を起動する。
+`library/latest/rekord_graph/`はこのリポジトリのdata/に戻す
+ユーザー名が違う場合はfiles/Users/<元ユーザー>/Music/を新しい~/Musicへ戻し、
+rekordboxの「再配置」で新しい場所を指定する
 USB（exportLibrary.db）は master.db から rekordbox の「デバイスへエクスポート」で作り直せる。
 """
 from __future__ import annotations
@@ -76,9 +94,13 @@ def key(p: Path | str) -> str:
     return unicodedata.normalize("NFC", str(p))
 
 
-def track_paths() -> list[Path]:
+def track_paths(snapshot: Path | None = None) -> list[Path]:
     """master.db が参照している曲ファイル（Spotify 等のストリーミングは除く）。"""
-    db = open_copy()
+    if snapshot is None:
+        db = open_copy()
+    else:
+        from pyrekordbox import Rekordbox6Database
+        db = Rekordbox6Database(path=str(snapshot), unlock=True)
     try:
         paths = {c.FolderPath for c in db.get_content() if c.FolderPath}
     finally:
@@ -198,12 +220,13 @@ def backup(dest: Path, dry: bool) -> int:
     return 1 if failed else 0
 
 
-def install(dest: Path) -> None:
+def install(dest: Path, remote: str | None = None, rclone: str | None = None) -> None:
     PLIST.parent.mkdir(parents=True, exist_ok=True)
     LOG.parent.mkdir(parents=True, exist_ok=True)
     plist = {
         "Label": LABEL,
-        "ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--dest", str(dest)],
+        "ProgramArguments": [sys.executable, "-u", str(Path(__file__).resolve())] + (
+            ["--remote", remote, "--rclone", rclone] if remote else ["--dest", str(dest)]),
         # スリープ中に時刻を過ぎたら、起きたときに1回走る
         "StartCalendarInterval": {"Hour": 5, "Minute": 0},
         "StandardOutPath": str(LOG),
@@ -219,16 +242,36 @@ def install(dest: Path) -> None:
 def uninstall() -> None:
     subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(PLIST)], capture_output=True)
     PLIST.unlink(missing_ok=True)
-    print("自動同期を止めました（iCloud 上のものはそのまま）")
+    print("自動同期を止めました（保存先のバックアップはそのまま）")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="rekordbox のライブラリと曲ファイルを iCloud Drive に同期する")
+    ap = argparse.ArgumentParser(description="rekordboxのライブラリと曲ファイルをバックアップする")
     ap.add_argument("--dest", type=Path, default=DEFAULT_DEST)
+    ap.add_argument("--remote", help="rclone の送信先（例: rekordbox-gdrive:rekordbox-backup）")
+    ap.add_argument("--rclone", help="rclone 実行ファイルの絶対パス（launchd にも保存する）")
+    ap.add_argument("--verify", action="store_true", help="送信先の曲ファイルをDB参照とサイズで照合する")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--install", action="store_true", help="毎日 5:00 に自動で同期する")
     ap.add_argument("--uninstall", action="store_true")
     args = ap.parse_args()
+    if (args.verify or args.rclone) and not args.remote:
+        ap.error("--verifyと--rcloneには--remoteが必要です")
+    if sum((args.install, args.uninstall, args.verify)) > 1 or (args.dry_run and (args.install or args.uninstall or args.verify)):
+        ap.error("--install、--uninstall、--verify、--dry-runは同時に指定できません")
+
+    if args.remote:
+        from backup_remote import RemoteBackup
+        remote = RemoteBackup(args.remote, args.rclone)
+        if args.uninstall:
+            uninstall()
+        elif args.install:
+            install(args.dest, remote.dest, remote.binary)
+        elif args.verify:
+            return remote.verify_tracks(track_paths())
+        else:
+            return remote.backup(args.dry_run)
+        return 0
 
     if args.uninstall:
         uninstall()

@@ -137,17 +137,51 @@ rekordbox の `rekord_graph` フォルダの中だけを触り、同じ名前が
 🎶Playlists の DB は後から足したもの。無ければ `./.venv/bin/python tools/setup_notion.py --add playlists --write` で
 今ある DB と同じページに作る（Vercel には `NOTION_DB_PLAYLISTS` を足す）。
 
-### バックアップ（iCloud Drive に同期）
+### バックアップ（Google Driveへ直接送信）
+
+初回に`brew install rclone`を実行し、`rclone config`でGoogle Driveのremote
+`rekordbox-gdrive`を作る。Googleのログイン・OAuth認可は本人が操作する
+継続運用には[専用OAuthクライアント](https://rclone.org/drive/#making-your-own-client-id)を設定する
+バックアップ専用なら`drive.file`スコープでrcloneが作成したファイルだけにアクセスできる
+My Driveの専用フォルダを使い、共有設定は追加しない
 
 ```bash
-./.venv/bin/python tools/backup.py            # 1回同期する
-./.venv/bin/python tools/backup.py --install  # 毎日 5:00 に自動で同期する（--uninstall で止める）
+rclone about rekordbox-gdrive:                 # 実際の空き容量を確認
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --dry-run
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --verify
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --install
 ```
 
-Mac → `iCloud Drive/rekordbox-backup/` の片方向の同期。Mac が無くなっても戻せるよう、
+Mac → Google Driveの`rekordbox-backup/`への片方向同期。Macが無くなっても戻せるよう、
 ライブラリ（master.db・キュー・プレイリスト・波形解析・設定）と、曲が入っているフォルダ（`~/Music/DJ_songs` など）を
-元の絶対パスの形のまま丸ごと置く。持つのは最新版と、ひとつ前の同期の分だけ。
-rekordbox の起動中はスキップする。戻し方はスクリプト冒頭のコメント。
+元の絶対パスの形で丸ごと置く。`library/latest`は最新版、`library/previous`は前回のライブラリ、
+`files`は現在の曲、`previous/files`は前回の同期で上書き・削除された曲
+曲をローカルに複製せず、ライブラリと設定だけ一時コピーする（約480MB、別途1GiBの余裕が必要）
+rekordboxの起動中はスキップし、曲とライブラリの転送・照合が成功してから世代を更新する
+`--verify`はDBが参照する曲をNFC正規化したパスとサイズで照合し、欠けや重複をエラーにする
+
+`--install`はrcloneの絶対パスをlaunchdに保存し、毎日5:00に実行する
+ログは`~/Library/Logs/rekord_graph_backup.log`、停止は`--uninstall`
+手動で試すには`launchctl kickstart gui/$(id -u)/com.rekord-graph.backup`
+
+既存のローカル/iCloud経路も使える。`--remote`を省略すると従来のiCloud保存先、
+`--dest`または`REKORD_GRAPH_BACKUP_DIR`でローカル保存先を変更できる
+移行先の転送と照合が完了するまで、iCloudのバックアップと自動実行設定は残す
+
+戻し方は、新しいMacにrekordboxを入れて一度起動し、終了してから以下を行う
+
+1. rcloneをインストールし、同じGoogleアカウントを認可する
+2. `rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する（全容量の空きが必要）
+3. 取得した`library/latest/rekordbox/`を`~/Library/Pioneer/rekordbox/`へ戻す
+4. `library/latest/settings/`を`~/Library/Application Support/Pioneer/rekordbox6/`へ戻す
+5. `files/`の中身を元の絶対パスへ戻す。ユーザー名が違う場合は`files/Users/<元ユーザー>/Music/`を新しい`~/Music/`へ戻し、rekordboxの「再配置」で直す
+6. `library/latest/rekord_graph/`をこのリポジトリの`data/`へ戻し、rekordboxを起動する
+
+USBの`exportLibrary.db`はrekordboxのデバイスへのエクスポートで作り直せる
+失敗時の退避は`.incomplete/<実行ID>/`に保持する。確認前に削除しない
+`library/latest`が無い場合は`library/previous`を使う（次回実行時にも復旧する）
+必要なら`previous/files`や失敗した実行の`.incomplete/<実行ID>/files`から以前の曲を戻す
 
 ## 設定ファイル
 
