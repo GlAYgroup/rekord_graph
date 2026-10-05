@@ -8,10 +8,17 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import backup as local
+
+
+def path_key(path: Path | str) -> str:
+    normalized = local.key(path)
+    # このMacの通常のAPFSでは大文字小文字の違うDB参照も同じファイルを指す
+    return normalized.casefold() if sys.platform == "darwin" else normalized
 
 
 def assert_closed() -> bool:
@@ -32,14 +39,17 @@ def wanted_files(tracks: list[Path]) -> dict[str, Path]:
             raise RuntimeError(f"同期元フォルダがありません: {root}")
         for path in root.rglob("*"):
             if path.is_file() and path.name not in local.JUNK:
-                normalized = local.key(path)
-                if normalized in wanted and wanted[normalized] != path:
+                normalized = path_key(path)
+                if normalized in wanted and not path.samefile(wanted[normalized]):
                     raise RuntimeError(f"正規化後のパスが重複しています: {path}")
-                wanted[normalized] = path
+                wanted.setdefault(normalized, path)
     for path in singles + tracks:
         if not path.is_file():
             raise RuntimeError(f"DB参照曲がありません: {path}")
-        wanted.setdefault(local.key(path), path)
+        normalized = path_key(path)
+        if normalized in wanted and not path.samefile(wanted[normalized]):
+            raise RuntimeError(f"正規化後のパスが重複しています: {path}")
+        wanted.setdefault(normalized, path)
     if not wanted:
         raise RuntimeError("同期元が空なので送信先を更新しません")
     return wanted
@@ -65,7 +75,8 @@ class RemoteBackup:
     def run(self, *args: str, capture: bool = False) -> str:
         result = subprocess.run(
             [self.binary, *map(str, args), "--transfers", "2", "--checkers", "4",
-             "--stats", "30s", "--stats-one-line", "--log-level", "NOTICE"],
+             "--stats", "30s", "--stats-one-line", "--stats-log-level", "NOTICE",
+             "--log-level", "NOTICE"],
             check=True, text=True, stdout=subprocess.PIPE if capture else None,
         )
         return result.stdout or ""
@@ -83,7 +94,7 @@ class RemoteBackup:
         rows = json.loads(self.run("lsjson", self.path(suffix), "-R", "--files-only", capture=True))
         found: dict[str, int] = {}
         for row in rows:
-            path = local.key(row["Path"])
+            path = path_key(row["Path"])
             if path in found:
                 raise RuntimeError(f"送信先に重複パスがあります: {path}")
             found[path] = row["Size"]
@@ -93,7 +104,7 @@ class RemoteBackup:
         found = self.inventory("files")
         failures = []
         for path in tracks:
-            relative = local.key(path.relative_to("/"))
+            relative = path_key(path.relative_to("/"))
             if not path.is_file() or found.get(relative) != path.stat().st_size:
                 failures.append(str(path))
         print(f"DB参照曲: {len(tracks)} 件 / 欠け・サイズ不一致: {len(failures)} 件", flush=True)

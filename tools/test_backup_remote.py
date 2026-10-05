@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import backup as local
-from backup_remote import RemoteBackup
+from backup_remote import RemoteBackup, path_key
 
 
 @contextmanager
@@ -39,6 +39,7 @@ def fixture():
                 local, MUSIC=music, RB_DIR=rb, SETTINGS_DIR=settings, REPO=repo, ALWAYS=[]
             ), patch.object(local, "track_paths", side_effect=lambda *_: list(tracks)), patch(
                 "backup_remote.assert_closed", return_value=True
+            ), patch("backup_remote.tempfile.gettempdir", return_value=str(root)
             ):
                 yield RemoteBackup("test:backup", binary), root, track, tracks
         finally:
@@ -57,7 +58,18 @@ def test_initial_unicode_and_secrets():
         assert (latest / "rekordbox/master.db").read_bytes() == b"library-first"
         assert not (latest / "settings/rb_guser").exists()
         assert remote.verify_tracks([Path(unicodedata.normalize("NFC", str(track)))]) == 0
-        assert local.key(track.relative_to("/")) in remote.inventory("files")
+        assert path_key(track.relative_to("/")) in remote.inventory("files")
+
+
+def test_macos_case_alias():
+    with fixture() as (remote, root, track, tracks):
+        alias = track.parent / track.name.upper()
+        if not alias.exists():
+            return  # 大文字小文字を区別するファイルシステムでは同じファイルではない
+        tracks.append(alias)
+        tracks.append(track.parent.parent / "dj_songs" / track.name)
+        assert remote.backup(False) == 0
+        assert remote.verify_tracks(tracks) == 0
 
 
 def test_update_delete_and_one_previous():

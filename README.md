@@ -160,6 +160,7 @@ Mac → Google Driveの`rekordbox-backup/`への片方向同期。Macが無く�
 曲をローカルに複製せず、ライブラリと設定だけ一時コピーする（約480MB、別途1GiBの余裕が必要）
 rekordboxの起動中はスキップし、曲とライブラリの転送・照合が成功してから世代を更新する
 `--verify`はDBが参照する曲をNFC正規化したパスとサイズで照合し、欠けや重複をエラーにする
+macOSでは大文字・小文字だけが違う参照も同じファイルとして照合する
 
 `--install`はrcloneの絶対パスをlaunchdに保存し、毎日5:00に実行する
 ログは`~/Library/Logs/rekord_graph_backup.log`、停止は`--uninstall`
