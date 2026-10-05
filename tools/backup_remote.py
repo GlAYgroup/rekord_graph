@@ -73,8 +73,10 @@ class RemoteBackup:
         return f"{self.dest}/{suffix}"
 
     def run(self, *args: str, capture: bool = False) -> str:
+        # ライブラリは小ファイルが多いので、音源より同時転送数を増やす
+        transfers = "32" if args[0] == "sync" and "--copy-links" not in args else "8"
         result = subprocess.run(
-            [self.binary, *map(str, args), "--transfers", "8", "--checkers", "8",
+            [self.binary, *map(str, args), "--transfers", transfers, "--checkers", "8",
              "--stats", "30s", "--stats-one-line", "--stats-log-level", "NOTICE",
              "--log-level", "NOTICE"],
             check=True, text=True, stdout=subprocess.PIPE if capture else None,
