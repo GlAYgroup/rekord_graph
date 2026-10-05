@@ -159,6 +159,9 @@ Mac → Google Driveの`rekordbox-backup/`への片方向同期。Macが無く�
 `files`は現在の曲、`previous/files`は前回の同期で上書き・削除された曲
 曲をローカルに複製せず、ライブラリと設定だけ一時コピーする（約480MB、別途1GiBの余裕が必要）
 rekordboxの起動中はスキップし、曲とライブラリの転送・照合が成功してから世代を更新する
+ライブラリの作業用世代`library/.stage`を再利用して差分同期する（初期の世代作成時は全量送信）
+`.stage`は未完成なので復元には使わない。照合済みの世代は一時的に`.verified`となり、
+中断後は次回実行で世代更新を完了させてから新しい同期を始める
 `--verify`はDBが参照する曲をNFC正規化したパスとサイズで照合し、欠けや重複をエラーにする
 macOSでは大文字・小文字だけが違う参照も同じファイルとして照合する
 
@@ -181,7 +184,8 @@ macOSでは大文字・小文字だけが違う参照も同じファイルとし
 
 USBの`exportLibrary.db`はrekordboxのデバイスへのエクスポートで作り直せる
 失敗時の退避は`.incomplete/<実行ID>/`に保持する。確認前に削除しない
-`library/latest`が無い場合は`library/previous`を使う（次回実行時にも復旧する）
+`library/latest`が無い場合は照合済みの`library/.verified`、それも無ければ`library/previous`を使う
+前回の世代を戻す場合は`previous/files`の曲ファイルを`files`より優先して同じパスへ戻す
 必要なら`previous/files`や失敗した実行の`.incomplete/<実行ID>/files`から以前の曲を戻す
 
 ## 設定ファイル

@@ -115,6 +115,30 @@ class RemoteBackup:
             print(f"  ! {path}")
         return 1 if failures else 0
 
+    def recover_library(self) -> None:
+        """検証済み候補の世代入替を前進させる。未検証.stageは昇格しない"""
+        names = self.dirs("library")
+        if ".verified" in names:
+            latest, previous, stage = (name in names for name in ("latest", "previous", ".stage"))
+            if (latest and previous and stage) or (not latest and not previous and stage):
+                raise RuntimeError("ライブラリ世代の中断状態が想定外なので停止します")
+            # previousを退避した後にlatest→previous、最後に検証済み候補を昇格する
+            if latest and previous:
+                self.run("moveto", self.path("library/previous"), self.path("library/.stage"))
+            if latest:
+                self.run("moveto", self.path("library/latest"), self.path("library/previous"))
+            self.run("moveto", self.path("library/.verified"), self.path("library/latest"))
+            return
+
+        # 旧実装でlatest→previousの後に止まった場合。コピー中断でもlatestを半完成にしない
+        if "latest" not in names and "previous" in names:
+            recovery = self.path("library/.legacy-recover")
+            self.run("sync", self.path("library/previous"), recovery)
+            self.run("check", self.path("library/previous"), recovery)
+            self.run("moveto", recovery, self.path("library/latest"))
+        elif ".legacy-recover" in names:
+            raise RuntimeError("旧方式の復旧途中の状態が想定外なので停止します")
+
     def backup(self, dry: bool) -> int:
         print(f"[{dt.datetime.now():%Y-%m-%d %H:%M}] 同期先: {self.dest}", flush=True)
         try:
@@ -140,6 +164,10 @@ class RemoteBackup:
             print("（--dry-run: 何も書いていません）")
             return 0
 
+        # .verifiedが残っていれば新しい.stageを更新する前に、検証済み世代の入替を完了する
+        self.run("mkdir", self.path("library"))
+        self.recover_library()
+
         with tempfile.TemporaryDirectory(prefix="rekord_graph_upload-") as temp:
             stage = Path(temp)
             required = sum(p.stat().st_size for root in (local.RB_DIR, local.SETTINGS_DIR, local.REPO / "data")
@@ -164,24 +192,19 @@ class RemoteBackup:
             # 失敗した実行の退避は消さずに保持。再試行が以前の曲を上書きしない
             run_id = dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f") + f"-{os.getpid()}"
             pending = f".incomplete/{run_id}"
+            self.run("mkdir", self.path(pending))
             self.run("sync", str(files), self.path("files"), "--copy-links",
                      "--backup-dir", self.path(f"{pending}/files"), "--delete-after")
             self.run("check", str(files), self.path("files"), "--copy-links", "--size-only")
             if self.verify_tracks(tracks):
                 raise RuntimeError("DB参照曲の照合に失敗しました")
 
-            new = f"{pending}/library"
+            # 3世代目以降の古い完成済みフォルダを再利用し、小ファイルを毎回送らない
+            new = "library/.stage"
             self.run("sync", str(stage / "library/latest"), self.path(new))
             self.run("check", str(stage / "library/latest"), self.path(new))
-            self.run("mkdir", self.path("library"))
-            # latest→previousの後で中断してもpreviousから復旧してから世代を回す
-            names = self.dirs("library")
-            if "latest" not in names and "previous" in names:
-                self.run("copy", self.path("library/previous"), self.path("library/latest"))
-            if "latest" in self.dirs("library"):
-                self.remove_dir("library/previous")
-                self.run("moveto", self.path("library/latest"), self.path("library/previous"))
-            self.run("moveto", self.path(new), self.path("library/latest"))
+            self.run("moveto", self.path(new), self.path("library/.verified"))
+            self.recover_library()
             self.run("mkdir", self.path("previous"))
             self.remove_dir("previous/files")
             if "files" in self.dirs(pending):

@@ -134,9 +134,116 @@ def test_library_rotation_interruption_recovers():
         with patch.object(remote, "run", side_effect=interrupted):
             assert remote.backup(False) == 1
         assert (root / "backup/library/previous/rekordbox/master.db").read_bytes() == b"library-first"
-        assert remote.backup(False) == 0
+        remote.recover_library()
         assert (root / "backup/library/latest/rekordbox/master.db").read_bytes() == b"library-second"
         assert (root / "backup/library/previous/rekordbox/master.db").read_bytes() == b"library-first"
+
+
+def library_db(root: Path, name: str) -> bytes:
+    return (root / "backup/library" / name / "rekordbox/master.db").read_bytes()
+
+
+def generation(remote, root: Path, number: int):
+    (root / "rb/master.db").write_bytes(f"generation-{number}".encode())
+    assert remote.backup(False) == 0
+
+
+def test_stage_reuses_unchanged_files_on_fourth_backup():
+    with fixture() as (remote, root, track, tracks):
+        for number in range(1, 4):
+            generation(remote, root, number)
+        assert library_db(root, "latest") == b"generation-3"
+        assert library_db(root, "previous") == b"generation-2"
+        assert library_db(root, ".stage") == b"generation-1"
+        unchanged = root / "backup/library/.stage/settings/normal.ini"
+        old_inode = unchanged.stat().st_ino
+        generation(remote, root, 4)
+        assert library_db(root, "latest") == b"generation-4"
+        assert library_db(root, "previous") == b"generation-3"
+        assert library_db(root, ".stage") == b"generation-2"
+        # 全転送した場合はinodeが変わる。既存ファイルをskipし、フォルダごと昇格している
+        assert (root / "backup/library/latest/settings/normal.ini").stat().st_ino == old_inode
+        assert remote.dirs("library") == {"latest", "previous", ".stage"}
+
+
+def test_stage_verification_failure_preserves_latest_and_previous():
+    with fixture() as (remote, root, track, tracks):
+        for number in range(1, 4):
+            generation(remote, root, number)
+        (root / "rb/master.db").write_bytes(b"generation-4")
+        real_run = remote.run
+
+        def interrupted(*args, **kwargs):
+            if args[0] == "check" and args[2] == remote.path("library/.stage"):
+                raise RuntimeError("injected unverified stage failure")
+            return real_run(*args, **kwargs)
+
+        with patch.object(remote, "run", side_effect=interrupted):
+            assert remote.backup(False) == 1
+        assert library_db(root, "latest") == b"generation-3"
+        assert library_db(root, "previous") == b"generation-2"
+        assert ".verified" not in remote.dirs("library")
+        generation(remote, root, 4)
+        assert library_db(root, "latest") == b"generation-4"
+        assert library_db(root, "previous") == b"generation-3"
+
+
+def test_verified_recovery_initial_second_and_normal_rotation():
+    # 各DirMove直前で止め、次のbackupが新しいstage syncより前に復旧することを確認する
+    cases = [(0, "latest"), (1, "previous"), (1, "latest"),
+             (3, ".stage"), (3, "previous"), (3, "latest")]
+    for completed, interrupted_target in cases:
+        with fixture() as (remote, root, track, tracks):
+            for number in range(1, completed + 1):
+                generation(remote, root, number)
+            desired = f"generation-{completed + 1}".encode()
+            (root / "rb/master.db").write_bytes(desired)
+            real_run = remote.run
+
+            def interrupted(*args, **kwargs):
+                if args[0] == "moveto" and args[2] == remote.path(f"library/{interrupted_target}"):
+                    raise RuntimeError("injected verified rotation interruption")
+                return real_run(*args, **kwargs)
+
+            with patch.object(remote, "run", side_effect=interrupted):
+                assert remote.backup(False) == 1
+            assert library_db(root, ".verified") == desired
+
+            def stop_after_recovery(*args, **kwargs):
+                if args[0] == "sync" and args[2] == remote.path("library/.stage"):
+                    assert ".verified" not in remote.dirs("library")
+                    assert library_db(root, "latest") == desired
+                    raise RuntimeError("stop before fresh stage upload")
+                return real_run(*args, **kwargs)
+
+            with patch.object(remote, "run", side_effect=stop_after_recovery):
+                assert remote.backup(False) == 1
+            assert library_db(root, "latest") == desired
+            if completed:
+                assert library_db(root, "previous") == f"generation-{completed}".encode()
+            if completed >= 2:
+                assert library_db(root, ".stage") == f"generation-{completed - 1}".encode()
+
+
+def test_legacy_latest_missing_recovery_is_atomic():
+    with fixture() as (remote, root, track, tracks):
+        generation(remote, root, 1)
+        remote.run("moveto", remote.path("library/latest"), remote.path("library/previous"))
+        real_run = remote.run
+
+        def interrupted(*args, **kwargs):
+            if args[0] == "check" and args[2] == remote.path("library/.legacy-recover"):
+                raise RuntimeError("injected legacy recovery verification failure")
+            return real_run(*args, **kwargs)
+
+        with patch.object(remote, "run", side_effect=interrupted):
+            assert remote.backup(False) == 1
+        assert "latest" not in remote.dirs("library")
+        assert library_db(root, "previous") == b"generation-1"
+        remote.recover_library()
+        assert library_db(root, "latest") == b"generation-1"
+        assert library_db(root, "previous") == b"generation-1"
+        assert ".legacy-recover" not in remote.dirs("library")
 
 
 if __name__ == "__main__":

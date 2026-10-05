@@ -38,11 +38,13 @@ Google Driveへの直接送信（rcloneの認可は本人操作）:
 
 Google Drive経路はライブラリだけ一時コピーし、そのDBから曲参照を取得する
 転送・照合が成功してから世代を更新し、中断時の退避は.incomplete/<実行ID>/に残す
-library/latestが無い場合はlibrary/previousが最後の完成済みライブラリ
-次回実行時にpreviousからlatestを復旧して世代を更新する
+library/.stageは差分送信のために再利用する作業用世代で、復元には使わない
+照合済み世代をlibrary/.verifiedへ改名してからlatest/previousを更新する
+中断後は検証済み世代の更新を完了させてから新しい同期を始める
+library/latestが無い場合はlibrary/.verified、それも無ければlibrary/previousを使う
 
 戻し方（新しい Mac）: rekordbox を入れて一度起動 → 終了し、
-Google Driveの場合は新しいMacでrcloneをインストールし、同じアカウントを認可して
+Google Driveの場合は新しいMacでrcloneをインストールし、同じアカウントを認可する
 drive.fileはアプリ単位のアクセスなので、同じOAuthクライアントを使う
 OAuth設定を復旧できない場合はGoogle DriveのWeb画面からフォルダをダウンロードする
 `rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する
@@ -53,6 +55,7 @@ OAuth設定を復旧できない場合はGoogle DriveのWeb画面からフォル
 `library/latest/rekord_graph/`はこのリポジトリのdata/に戻す
 ユーザー名が違う場合はfiles/Users/<元ユーザー>/Music/を新しい~/Musicへ戻し、
 rekordboxの「再配置」で新しい場所を指定する
+前回の世代を戻す場合はprevious/filesの曲をfilesより優先して元のパスへ戻す
 USB（exportLibrary.db）は master.db から rekordbox の「デバイスへエクスポート」で作り直せる。
 """
 from __future__ import annotations
