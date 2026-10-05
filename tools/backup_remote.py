@@ -14,6 +14,9 @@ from pathlib import Path
 
 import backup as local
 
+LOCK_ROOT = local.REPO / ".backup-state"
+LOCK_NAME = f"rekord_graph_remote_backup-{os.getuid()}.lock" if os.name == "posix" else "rekord_graph_remote_backup.lock"
+
 
 def path_key(path: Path | str) -> str:
     normalized = local.key(path)
@@ -142,7 +145,9 @@ class RemoteBackup:
     def backup(self, dry: bool) -> int:
         print(f"[{dt.datetime.now():%Y-%m-%d %H:%M}] 同期先: {self.dest}", flush=True)
         try:
-            with open(Path(tempfile.gettempdir()) / "rekord_graph_remote_backup.lock", "a") as lock:
+            # macOSの一時領域清掃に古いmtimeのsnapshotを消されない場所を共有する
+            LOCK_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+            with open(LOCK_ROOT / LOCK_NAME, "a") as lock:
                 try:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
@@ -168,7 +173,7 @@ class RemoteBackup:
         self.run("mkdir", self.path("library"))
         self.recover_library()
 
-        with tempfile.TemporaryDirectory(prefix="rekord_graph_upload-") as temp:
+        with tempfile.TemporaryDirectory(prefix="rekord_graph_upload-", dir=LOCK_ROOT) as temp:
             stage = Path(temp)
             required = sum(p.stat().st_size for root in (local.RB_DIR, local.SETTINGS_DIR, local.REPO / "data")
                            for p in root.rglob("*") if p.is_file() and not local.skip_secret(p.name))

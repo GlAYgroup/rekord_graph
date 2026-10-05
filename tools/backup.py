@@ -37,6 +37,7 @@ Google Driveへの直接送信（rcloneの認可は本人操作）:
 - Spotify などストリーミングの曲はファイルが無いので持てない（キューは master.db に残る）
 
 Google Drive経路はライブラリだけ一時コピーし、そのDBから曲参照を取得する
+作業用コピーとロックはリポジトリの.backup-state/に置き、macOSの一時領域清掃を避ける
 転送・照合が成功してから世代を更新し、中断時の退避は.incomplete/<実行ID>/に残す
 library/.stageは差分送信のために再利用する作業用世代で、復元には使わない
 照合済み世代をlibrary/.verifiedへ改名してからlatest/previousを更新する

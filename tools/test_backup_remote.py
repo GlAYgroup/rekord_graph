@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import fcntl
 import shutil
 import tempfile
 import unicodedata
@@ -10,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import backup as local
-from backup_remote import RemoteBackup, path_key
+from backup_remote import LOCK_NAME, RemoteBackup, path_key
 
 
 @contextmanager
@@ -39,6 +40,7 @@ def fixture():
                 local, MUSIC=music, RB_DIR=rb, SETTINGS_DIR=settings, REPO=repo, ALWAYS=[]
             ), patch.object(local, "track_paths", side_effect=lambda *_: list(tracks)), patch(
                 "backup_remote.assert_closed", return_value=True
+            ), patch("backup_remote.LOCK_ROOT", root
             ), patch("backup_remote.tempfile.gettempdir", return_value=str(root)
             ):
                 yield RemoteBackup("test:backup", binary), root, track, tracks
@@ -70,6 +72,50 @@ def test_macos_case_alias():
         tracks.append(track.parent.parent / "dj_songs" / track.name)
         assert remote.backup(False) == 0
         assert remote.verify_tracks(tracks) == 0
+
+
+def test_held_process_lock_skips_then_unlocked_backup_succeeds():
+    with fixture() as (remote, root, track, tracks):
+        assert remote.backup(False) == 0
+        (root / "rb/master.db").write_bytes(b"library-second")
+        with (root / LOCK_NAME).open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert remote.backup(False) == 0
+            assert library_db(root, "latest") == b"library-first"
+            assert "previous" not in remote.dirs("library")
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        assert remote.backup(False) == 0
+        assert library_db(root, "latest") == b"library-second"
+        assert library_db(root, "previous") == b"library-first"
+
+
+def test_snapshot_uses_protected_root_and_preserves_old_mtime():
+    with fixture() as (remote, root, track, tracks):
+        analysis = root / "rb/old-analysis.DAT"
+        analysis.write_bytes(b"old-analysis")
+        old_time = 1_000_000_000
+        os.utime(analysis, (old_time, old_time))
+        real_run = remote.run
+        inspected = []
+
+        def inspect(*args, **kwargs):
+            if args[0] == "sync" and args[2] == remote.path("library/.stage"):
+                snapshot = Path(args[1])
+                assert snapshot.is_relative_to(root)
+                assert snapshot.parents[2] == root
+                assert int((snapshot / "rekordbox/old-analysis.DAT").stat().st_mtime) == old_time
+                inspected.append(snapshot)
+            return real_run(*args, **kwargs)
+
+        # デフォルトTMPDIRが別でもsnapshotとlockは保護rootを使う
+        with patch("backup_remote.tempfile.gettempdir", return_value="/unusable-temp-for-backup"), patch.object(
+            remote, "run", side_effect=inspect
+        ):
+            assert remote.backup(False) == 0
+        assert len(inspected) == 1
+        assert not inspected[0].exists()
+        assert (root / LOCK_NAME).is_file()
+        assert int(analysis.stat().st_mtime) == old_time
 
 
 def test_update_delete_and_one_previous():
