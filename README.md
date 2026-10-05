@@ -141,7 +141,7 @@ rekordbox の `rekord_graph` フォルダの中だけを触り、同じ名前が
 
 初回に`brew install rclone`を実行し、`rclone config`でGoogle Driveのremote
 `rekordbox-gdrive`を作る。Googleのログイン・OAuth認可は本人が操作する
-継続運用には[専用OAuthクライアント](https://rclone.org/drive/#making-your-own-client-id)を設定する
+継続運用には[専用OAuthクライアント](https://rclone.org/drive/#making-your-own-client-id)を設定する（共有クライアントは2026年に廃止）
 バックアップ専用なら`drive.file`スコープでrcloneが作成したファイルだけにアクセスできる
 My Driveの専用フォルダを使い、共有設定は追加しない
 
@@ -172,7 +172,7 @@ macOSでは大文字・小文字だけが違う参照も同じファイルとし
 
 戻し方は、新しいMacにrekordboxを入れて一度起動し、終了してから以下を行う
 
-1. rcloneをインストールし、同じGoogleアカウントを認可する
+1. rcloneをインストールし、同じGoogleアカウントを認可する。`drive.file`は[アプリごとのファイルアクセス](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)なので、バックアップ作成時と同じOAuthクライアントを使う。OAuth設定を復旧できない場合は、Google DriveのWeb画面から`rekordbox-backup`フォルダをダウンロードする
 2. `rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する（全容量の空きが必要）
 3. 取得した`library/latest/rekordbox/`を`~/Library/Pioneer/rekordbox/`へ戻す
 4. `library/latest/settings/`を`~/Library/Application Support/Pioneer/rekordbox6/`へ戻す

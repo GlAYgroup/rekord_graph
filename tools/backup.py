@@ -43,6 +43,8 @@ library/latestが無い場合はlibrary/previousが最後の完成済みライ�
 
 戻し方（新しい Mac）: rekordbox を入れて一度起動 → 終了し、
 Google Driveの場合は新しいMacでrcloneをインストールし、同じアカウントを認可して
+drive.fileはアプリ単位のアクセスなので、同じOAuthクライアントを使う
+OAuth設定を復旧できない場合はGoogle DriveのWeb画面からフォルダをダウンロードする
 `rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する
 （復元先には曲を含む全容量の空きが必要。iCloudの場合は既存バックアップを使う）
 `library/latest/rekordbox/` を ~/Library/Pioneer/rekordbox に、
