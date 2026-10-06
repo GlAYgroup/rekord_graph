@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """rekordboxのライブラリと曲ファイルをGoogle Driveまたはローカル保存先に同期する
 
-Google Driveへの直接送信（rcloneの認可は本人操作）:
-  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup
-  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --verify
-  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --install
+Google Driveの「other/rekordbox-backup」への直接送信（rcloneの認可は本人操作）:
+  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup
+  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup --verify
+  ./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup --install
 
 既存のローカル/iCloud経路:
 
@@ -47,8 +47,8 @@ library/latestが無い場合はlibrary/.verified、それも無ければlibrary
 戻し方（新しい Mac）: rekordbox を入れて一度起動 → 終了し、
 Google Driveの場合は新しいMacでrcloneをインストールし、同じアカウントを認可する
 drive.fileはアプリ単位のアクセスなので、同じOAuthクライアントを使う
-OAuth設定を復旧できない場合はGoogle DriveのWeb画面からフォルダをダウンロードする
-`rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する
+OAuth設定を復旧できない場合はGoogle DriveのWeb画面から「other」内の「rekordbox-backup」をダウンロードする
+`rclone copy rekordbox-gdrive:other/rekordbox-backup ~/rekordbox-restore`で取得する
 （復元先には曲を含む全容量の空きが必要。iCloudの場合は既存バックアップを使う）
 `library/latest/rekordbox/` を ~/Library/Pioneer/rekordbox に、
 `library/latest/settings/` を ~/Library/Application Support/Pioneer/rekordbox6 に、
@@ -254,7 +254,7 @@ def uninstall() -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="rekordboxのライブラリと曲ファイルをバックアップする")
     ap.add_argument("--dest", type=Path, default=DEFAULT_DEST)
-    ap.add_argument("--remote", help="rclone の送信先（例: rekordbox-gdrive:rekordbox-backup）")
+    ap.add_argument("--remote", help="rclone の送信先（例: rekordbox-gdrive:other/rekordbox-backup）")
     ap.add_argument("--rclone", help="rclone 実行ファイルの絶対パス（launchd にも保存する）")
     ap.add_argument("--verify", action="store_true", help="送信先の曲ファイルをDB参照とサイズで照合する")
     ap.add_argument("--dry-run", action="store_true")

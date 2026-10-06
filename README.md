@@ -147,13 +147,13 @@ My Driveの専用フォルダを使い、共有設定は追加しない
 
 ```bash
 rclone about rekordbox-gdrive:                 # 実際の空き容量を確認
-./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --dry-run
-./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup
-./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --verify
-./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:rekordbox-backup --install
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup --dry-run
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup --verify
+./.venv/bin/python tools/backup.py --remote rekordbox-gdrive:other/rekordbox-backup --install
 ```
 
-Mac → Google Driveの`rekordbox-backup/`への片方向同期。Macが無くなっても戻せるよう、
+Mac → Google Driveの`other/rekordbox-backup/`への片方向同期。Macが無くなっても戻せるよう、
 ライブラリ（master.db・キュー・プレイリスト・波形解析・設定）と、曲が入っているフォルダ（`~/Music/DJ_songs` など）を
 元の絶対パスの形で丸ごと置く。`library/latest`は最新版、`library/previous`は前回のライブラリ、
 `files`は現在の曲、`previous/files`は前回の同期で上書き・削除された曲
@@ -177,8 +177,8 @@ macOSでは大文字・小文字だけが違う参照も同じファイルとし
 
 戻し方は、新しいMacにrekordboxを入れて一度起動し、終了してから以下を行う
 
-1. rcloneをインストールし、同じGoogleアカウントを認可する。`drive.file`は[アプリごとのファイルアクセス](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)なので、バックアップ作成時と同じOAuthクライアントを使う。OAuth設定を復旧できない場合は、Google DriveのWeb画面から`rekordbox-backup`フォルダをダウンロードする
-2. `rclone copy rekordbox-gdrive:rekordbox-backup ~/rekordbox-restore`で取得する（全容量の空きが必要）
+1. rcloneをインストールし、同じGoogleアカウントを認可する。`drive.file`は[アプリごとのファイルアクセス](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)なので、バックアップ作成時と同じOAuthクライアントを使う。OAuth設定を復旧できない場合は、Google DriveのWeb画面から`other`内の`rekordbox-backup`フォルダをダウンロードする
+2. `rclone copy rekordbox-gdrive:other/rekordbox-backup ~/rekordbox-restore`で取得する（全容量の空きが必要）
 3. 取得した`library/latest/rekordbox/`を`~/Library/Pioneer/rekordbox/`へ戻す
 4. `library/latest/settings/`を`~/Library/Application Support/Pioneer/rekordbox6/`へ戻す
 5. `files/`の中身を元の絶対パスへ戻す。ユーザー名が違う場合は`files/Users/<元ユーザー>/Music/`を新しい`~/Music/`へ戻し、rekordboxの「再配置」で直す
